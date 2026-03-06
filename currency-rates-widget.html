@@ -9,23 +9,19 @@
     body {
       font-family: sans-serif;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
+      height: 100vh;
       margin: 0;
       background: #f9f9f9;
-      padding: 16px;
     }
     #card {
       background: white;
       border-radius: 10px;
-      padding: 24px 32px;
+      padding: 28px 36px;
       box-shadow: 0 2px 12px rgba(0,0,0,.08);
       text-align: center;
-      min-width: 220px;
-      width: 100%;
-      max-width: 400px;
+      min-width: 240px;
     }
     #label {
       font-size: 11px;
@@ -36,42 +32,41 @@
       margin-bottom: 8px;
     }
     #rate {
-      font-size: 36px;
+      font-size: 38px;
       font-weight: 700;
       color: #1a1a1a;
       letter-spacing: -.02em;
     }
-    #date-display { font-size: 12px; color: #aaa; margin-top: 6px; }
-    #status { margin-top: 14px; font-size: 12px; min-height: 18px; }
+    #date-display {
+      font-size: 12px;
+      color: #bbb;
+      margin-top: 5px;
+    }
+    #status {
+      margin-top: 16px;
+      font-size: 12px;
+      min-height: 18px;
+      line-height: 1.5;
+    }
     #status.loading { color: #888; }
     #status.ok      { color: #2a7a4b; }
-    #status.skip    { color: #aaa; }
+    #status.skip    { color: #bbb; }
     #status.error   { color: #c8502a; }
 
-    /* ── Debug panel ── */
-    #debug {
-      margin-top: 16px;
-      width: 100%;
-      max-width: 400px;
-      background: #1a1a1a;
-      border-radius: 8px;
-      padding: 12px 14px;
-      font-family: monospace;
+    /* Setup instructions shown when columns not mapped */
+    #setup {
+      display: none;
+      margin-top: 14px;
+      background: #fffbea;
+      border: 1px solid #ffe58f;
+      border-radius: 6px;
+      padding: 10px 12px;
       font-size: 11px;
-      color: #7ec8e3;
+      color: #7a5800;
+      text-align: left;
       line-height: 1.7;
-      white-space: pre-wrap;
-      word-break: break-all;
     }
-    #debug-title {
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      color: #666;
-      margin-bottom: 6px;
-      text-align: center;
-    }
+    #setup strong { display: block; margin-bottom: 4px; font-size: 12px; }
 
     .spinner {
       display: inline-block;
@@ -92,23 +87,33 @@
   <div id="rate">—</div>
   <div id="date-display"></div>
   <div id="status" class="skip">En attente…</div>
+  <div id="setup">
+    <strong>⚙ Configuration requise</strong>
+    Mappez les 3 colonnes dans le panneau du widget :<br>
+    • <b>Date</b> → colonne de type Date<br>
+    • <b>Rate</b> → colonne Numérique (taux EUR/USD)<br>
+    • <b>Trigger</b> → colonne Text avec trigger formula :<br>
+    <code style="background:#f5f0e0;padding:2px 5px;border-radius:3px;font-size:10px;">
+      import datetime<br>
+      datetime.datetime.now(datetime.timezone.utc).isoformat()
+    </code><br>
+    déclenchée sur <b>new record</b> + <b>colonne date</b>.
+  </div>
 </div>
 
-<div id="debug-title">Debug — valeurs brutes reçues de Grist</div>
-<div id="debug">En attente d'un enregistrement…</div>
-
 <script>
-  /* ── État ───────────────────────────────────────────── */
-  let tableId  = null;
-  let snapshot = {};
+  /* ═══════════════════════════════════════════════
+     ÉTAT
+  ═══════════════════════════════════════════════ */
+  let tableId = null;
 
-  /* ── Debug ──────────────────────────────────────────── */
-  function debug(obj) {
-    document.getElementById('debug').textContent =
-      JSON.stringify(obj, null, 2);
-  }
+  // Mémorise la dernière valeur de trigger vue par le widget
+  // pour chaque ligne : { [recordId]: triggerValue }
+  const lastTrigger = {};
 
-  /* ── UI ─────────────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════
+     UI
+  ═══════════════════════════════════════════════ */
   function setStatus(msg, type) {
     const el = document.getElementById('status');
     el.className = 'status ' + (type || 'ok');
@@ -121,47 +126,48 @@
     document.getElementById('date-display').textContent = dateStr || '';
   }
 
-  /* ── Formater une date vers YYYY-MM-DD ──────────────────
-     Grist peut transmettre les dates de plusieurs façons :
-     - timestamp en secondes (number)
-     - chaîne ISO "2026-03-01"
-     - chaîne avec heure "2026-03-01T00:00:00Z"
-     On gère tous les cas.                                */
+  function showSetup(visible) {
+    document.getElementById('setup').style.display = visible ? 'block' : 'none';
+  }
+
+  /* ═══════════════════════════════════════════════
+     FORMATAGE DATE
+     Grist transmet les dates comme timestamp
+     en secondes (entier) depuis l'epoch UTC.
+  ═══════════════════════════════════════════════ */
   function formatDate(raw) {
-    if (raw == null || raw === '' || raw === false) return null;
-
-    // Nombre : timestamp en secondes depuis epoch
+    if (raw == null || raw === '' || raw === false || raw === 0) return null;
     if (typeof raw === 'number') {
-      if (raw === 0) return null;
-      const d = new Date(raw * 1000);
-      const yyyy = d.getUTCFullYear();
-      const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const dd   = String(d.getUTCDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
+      const d  = new Date(raw * 1000);
+      const yy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      return `${yy}-${mm}-${dd}`;
     }
-
-    // Chaîne : extraire la partie YYYY-MM-DD quelle que soit la forme
     if (typeof raw === 'string') {
-      const match = raw.match(/(\d{4}-\d{2}-\d{2})/);
-      return match ? match[1] : null;
+      const m = raw.match(/(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : null;
     }
-
     return null;
   }
 
-  /* ── API Frankfurter ────────────────────────────────── */
+  /* ═══════════════════════════════════════════════
+     API FRANKFURTER
+  ═══════════════════════════════════════════════ */
   async function fetchRate(dateStr) {
     const res = await fetch(
       `https://api.frankfurter.dev/${dateStr}?from=EUR&to=USD`
     );
-    if (!res.ok) throw new Error(`Erreur API ${res.status}`);
+    if (!res.ok) throw new Error(`API Frankfurter — erreur ${res.status}`);
     const data = await res.json();
     if (!data.rates || !data.rates.USD)
       throw new Error('Taux USD absent de la réponse');
     return { rate: data.rates.USD, date: data.date };
   }
 
-  /* ── Écriture dans Grist ────────────────────────────── */
+  /* ═══════════════════════════════════════════════
+     ÉCRITURE DANS GRIST
+  ═══════════════════════════════════════════════ */
   async function writeRate(recordId, rate) {
     await grist.docApi.applyUserActions([
       ['UpdateRecord', tableId, recordId,
@@ -170,83 +176,88 @@
     ]);
   }
 
-  /* ── onRecords : snapshot ───────────────────────────── */
-  grist.onRecords((records, mappings) => {
-    const next = {};
-    for (const r of records) {
-      const mapped = grist.mapColumnNames(r, mappings);
-      if (!mapped) continue;
-      next[r.id] = { date: mapped.Date, rate: mapped.Rate };
-    }
-    snapshot = next;
-  });
-
-  /* ── onRecord : logique principale ─────────────────── */
+  /* ═══════════════════════════════════════════════
+     onRecord — logique principale
+  ═══════════════════════════════════════════════ */
   grist.onRecord(async (record, mappings) => {
+
+    // Pas de ligne sélectionnée
     if (!record) {
-      setStatus('Aucune ligne sélectionnée.', 'skip');
       setRate(null, null);
-      debug({ record: null });
+      setStatus('Sélectionnez une ligne.', 'skip');
+      showSetup(false);
       return;
     }
 
+    // Récupérer l'id de la table (mis en cache)
     if (!tableId) tableId = await grist.getSelectedTableId();
 
-    // ── Afficher TOUTES les valeurs brutes pour le debug ──
-    debug({
-      record_id:   record.id,
-      record_raw:  record,
-      mappings:    mappings,
-      snapshot_prev: snapshot[record.id] || null,
-    });
-
+    // Résoudre les colonnes via le mapping utilisateur
     const mapped = grist.mapColumnNames(record, mappings);
+
+    // Mapping incomplet → afficher les instructions
     if (!mapped) {
-      setStatus(
-        'Configurez les colonnes Date et Rate dans le panneau du widget.',
-        'error'
-      );
+      setRate(null, null);
+      setStatus('Colonnes non configurées.', 'error');
+      showSetup(true);
       return;
     }
+    showSetup(false);
 
-    const rawDate     = mapped.Date;
-    const currentRate = mapped.Rate;
-    const dateStr     = formatDate(rawDate);
+    const rawDate      = mapped.Date;
+    const currentRate  = mapped.Rate;
+    const triggerValue = mapped.Trigger;   // timestamp ISO produit par la trigger formula
+    const dateStr      = formatDate(rawDate);
 
-    // Afficher aussi les valeurs après mapping
-    debug({
-      record_id:    record.id,
-      raw_date:     rawDate,
-      raw_date_type: typeof rawDate,
-      formatted_date: dateStr,
-      current_rate: currentRate,
-      mappings:     mappings,
-      snapshot_prev: snapshot[record.id] || null,
-    });
-
+    // Afficher l'état courant immédiatement
     setRate(currentRate || null, dateStr);
 
+    // Pas de date → rien à faire
     if (!dateStr) {
+      setStatus('Aucune date dans cette ligne.', 'skip');
+      lastTrigger[record.id] = triggerValue;
+      return;
+    }
+
+    // Pas de trigger → trigger formula non configurée
+    if (!triggerValue) {
       setStatus(
-        `Aucune date — valeur brute reçue : "${rawDate}" (${typeof rawDate})`,
+        'Colonne Trigger vide — vérifiez la trigger formula.',
+        'error'
+      );
+      showSetup(true);
+      return;
+    }
+
+    const prevTrigger = lastTrigger[record.id];
+
+    // Mémoriser la valeur courante du trigger pour cette ligne
+    lastTrigger[record.id] = triggerValue;
+
+    // Trigger identique au précédent → simple navigation, aucun changement
+    if (prevTrigger !== undefined && prevTrigger === triggerValue) {
+      setStatus(
+        currentRate ? 'Taux à jour.' : 'Aucun changement détecté.',
         'skip'
       );
       return;
     }
 
-    const prev        = snapshot[record.id];
-    const isNewRecord = !prev;
-    const dateChanged = prev && formatDate(prev.date) !== dateStr;
-
-    if (!isNewRecord && !dateChanged) {
-      setStatus(
-        currentRate ? 'Taux à jour.' : 'Date inchangée — taux non recalculé.',
-        'skip'
-      );
+    // prevTrigger === undefined → premier chargement du widget sur cette ligne.
+    // On vérifie si le taux est déjà renseigné pour éviter un appel inutile
+    // au simple rechargement de la page.
+    if (prevTrigger === undefined && currentRate) {
+      setStatus('Taux à jour.', 'skip');
       return;
     }
 
-    const reason = isNewRecord ? 'nouvelle ligne' : 'date modifiée';
+    // Trigger nouveau ou taux manquant → appel API
+    const reason = (prevTrigger === undefined)
+      ? 'taux manquant'
+      : (prevTrigger === null || prevTrigger === '')
+        ? 'nouvelle ligne'
+        : 'date modifiée';
+
     setStatus(
       '<span class="spinner"></span>Récupération (' + reason + ')…',
       'loading'
@@ -263,12 +274,15 @@
     }
   });
 
-  /* ── Initialisation ─────────────────────────────────── */
+  /* ═══════════════════════════════════════════════
+     INITIALISATION
+  ═══════════════════════════════════════════════ */
   grist.ready({
     requiredAccess: 'full',
     columns: [
-      { name: 'Date', type: 'Date',    title: 'Colonne date' },
-      { name: 'Rate', type: 'Numeric', title: 'Colonne taux EUR/USD' },
+      { name: 'Date',    type: 'Date',    title: 'Colonne date' },
+      { name: 'Rate',    type: 'Numeric', title: 'Colonne taux EUR/USD' },
+      { name: 'Trigger', type: 'Text',    title: 'Colonne trigger formula' },
     ]
   });
 </script>
