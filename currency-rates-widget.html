@@ -65,19 +65,12 @@
 </div>
 
 <script>
-  /* ── Configuration par défaut des colonnes ─────────────
-     Ces noms sont utilisés si l'utilisateur ne configure
-     pas de mapping dans le panneau Grist du widget.      */
-  const COL_DATE = 'date';
-  const COL_RATE = 'EURUSD';
-
-  /* ── État interne ───────────────────────────────────── */
+  /* ── État ───────────────────────────────────────────── */
   let tableId  = null;
   let snapshot = {};
-  // snapshot = { [recordId]: { date: valeur_brute, eurusd: valeur } }
-  // mis à jour par onRecords, lu par onRecord pour détecter les changements
+  // snapshot = { [recordId]: { date: valeur_brute, rate: valeur } }
 
-  /* ── Helpers UI ─────────────────────────────────────── */
+  /* ── UI ─────────────────────────────────────────────── */
   function setStatus(msg, type) {
     const el = document.getElementById('status');
     el.className = 'status ' + (type || 'ok');
@@ -90,14 +83,12 @@
     document.getElementById('date-display').textContent = dateStr || '';
   }
 
-  /* ── Formater une date Grist → YYYY-MM-DD ───────────────
-     Grist stocke les dates sous forme de timestamp en
-     secondes depuis l'epoch UTC (entier).                */
+  /* ── Formater timestamp Grist → YYYY-MM-DD ──────────── */
   function formatDate(raw) {
     if (!raw && raw !== 0) return null;
     if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
     if (typeof raw === 'number') {
-      const d = new Date(raw * 1000);
+      const d    = new Date(raw * 1000);
       const yyyy = d.getUTCFullYear();
       const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
       const dd   = String(d.getUTCDate()).padStart(2, '0');
@@ -106,34 +97,43 @@
     return null;
   }
 
-  /* ── Appel API Frankfurter ──────────────────────────── */
+  /* ── API Frankfurter ────────────────────────────────── */
   async function fetchRate(dateStr) {
-    const url = `https://api.frankfurter.dev/${dateStr}?from=EUR&to=USD`;
-    const res = await fetch(url);
+    const res = await fetch(
+      `https://api.frankfurter.dev/${dateStr}?from=EUR&to=USD`
+    );
     if (!res.ok) throw new Error(`Erreur API ${res.status}`);
     const data = await res.json();
-    if (!data.rates || !data.rates.USD) throw new Error('Taux USD absent de la réponse');
+    if (!data.rates || !data.rates.USD)
+      throw new Error('Taux USD absent de la réponse');
     return { rate: data.rates.USD, date: data.date };
   }
 
-  /* ── Écriture du taux dans Grist ────────────────────── */
-  async function writeRate(recordId, colRate, rate) {
+  /* ── Écriture dans Grist ────────────────────────────── */
+  async function writeRate(recordId, rate) {
+    // On utilise la colonne mappée "Rate" via applyUserActions.
+    // mapColumnNames() nous a déjà donné la valeur normalisée,
+    // mais pour écrire on a besoin du vrai colId Grist —
+    // grist.mapColumnNamesBack() fait la conversion inverse.
     await grist.docApi.applyUserActions([
-      ['UpdateRecord', tableId, recordId, { [colRate]: rate }]
+      ['UpdateRecord', tableId, recordId,
+        grist.mapColumnNamesBack({ Rate: rate })
+      ]
     ]);
   }
 
   /* ── onRecords : maintenir le snapshot ──────────────── */
-  // Grist appelle onRecords avant onRecord à chaque changement.
-  // On stocke l'état de TOUTES les lignes pour pouvoir comparer.
+  // Appelé avant onRecord à chaque changement.
+  // On stocke l'état précédent de toutes les lignes.
   grist.onRecords((records, mappings) => {
     const next = {};
     for (const r of records) {
-      const colDate = (mappings && mappings.Date) || COL_DATE;
-      const colRate = (mappings && mappings.Rate) || COL_RATE;
+      // mapColumnNames normalise les noms selon le mapping utilisateur
+      const mapped = grist.mapColumnNames(r, mappings);
+      if (!mapped) continue;
       next[r.id] = {
-        date:  r[colDate],
-        eurusd: r[colRate],
+        date: mapped.Date,
+        rate: mapped.Rate,
       };
     }
     snapshot = next;
@@ -147,17 +147,23 @@
       return;
     }
 
-    // Récupérer l'id de la table courante
+    // Récupérer l'id de la table (mis en cache)
     if (!tableId) {
       tableId = await grist.getSelectedTableId();
     }
 
-    // Résoudre les noms de colonnes (mapping ou défaut)
-    const colDate = (mappings && mappings.Date) || COL_DATE;
-    const colRate = (mappings && mappings.Rate) || COL_RATE;
+    // mapColumnNames retourne null si le mapping est incomplet
+    const mapped = grist.mapColumnNames(record, mappings);
+    if (!mapped) {
+      setStatus(
+        'Configurez les colonnes Date et Rate dans le panneau du widget.',
+        'error'
+      );
+      return;
+    }
 
-    const rawDate     = record[colDate];
-    const currentRate = record[colRate];
+    const rawDate     = mapped.Date;
+    const currentRate = mapped.Rate;
     const dateStr     = formatDate(rawDate);
 
     // Afficher l'état courant immédiatement
@@ -169,13 +175,12 @@
       return;
     }
 
-    // Comparer avec le snapshot pour détecter création / changement
+    // Détecter création ou changement de date via le snapshot
     const prev        = snapshot[record.id];
     const isNewRecord = !prev;
     const dateChanged = prev && formatDate(prev.date) !== dateStr;
 
     if (!isNewRecord && !dateChanged) {
-      // Simple navigation ou autre colonne modifiée → ne rien faire
       setStatus(
         currentRate ? 'Taux à jour.' : 'Date inchangée — taux non recalculé.',
         'skip'
@@ -183,16 +188,16 @@
       return;
     }
 
-    // Nouvelle ligne ou date modifiée → appel API
+    // Appel API uniquement si nouvelle ligne ou date modifiée
     const reason = isNewRecord ? 'nouvelle ligne' : 'date modifiée';
     setStatus(
-      '<span class="spinner"></span>Récupération du taux (' + reason + ')…',
+      '<span class="spinner"></span>Récupération (' + reason + ')…',
       'loading'
     );
 
     try {
       const { rate, date } = await fetchRate(dateStr);
-      await writeRate(record.id, colRate, rate);
+      await writeRate(record.id, rate);
       setRate(rate, date);
       setStatus('✓ Taux mis à jour (' + reason + ').', 'ok');
     } catch (e) {
