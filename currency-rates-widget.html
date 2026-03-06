@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>EUR/USD Rate Widget</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #f9f9f9;
+    }
+    #card {
+      background: white;
+      border-radius: 10px;
+      padding: 24px 32px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      text-align: center;
+      min-width: 220px;
+    }
+    #label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #999;
+      margin-bottom: 8px;
+    }
+    #rate {
+      font-size: 36px;
+      font-weight: 700;
+      color: #1a1a1a;
+      letter-spacing: -.02em;
+    }
+    #date-display { font-size: 12px; color: #aaa; margin-top: 6px; }
+    #status { margin-top: 14px; font-size: 12px; min-height: 18px; }
+    #status.loading { color: #888; }
+    #status.ok      { color: #2a7a4b; }
+    #status.skip    { color: #aaa; }
+    #status.error   { color: #c8502a; }
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid #ddd;
+      border-top-color: #888;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div id="card">
+  <div id="label">EUR / USD</div>
+  <div id="rate">—</div>
+  <div id="date-display"></div>
+  <div id="status" class="skip">En attente…</div>
+</div>
+
+<script>
+  /* ── Configuration ──────────────────────────────────── */
+  const COL_DATE = 'date';
+  const COL_RATE = 'EURUSD';
+
+  /* ── État ───────────────────────────────────────────── */
+  let tableId   = null;
+  let snapshot  = {};   // { [recordId]: { date, eurusd } }
+  //  snapshot est mis à jour par onRecords (état complet de la table)
+  //  et lu par onRecord pour détecter les changements
+
+  /* ── UI ─────────────────────────────────────────────── */
+  function setStatus(msg, type = 'ok') {
+    const el = document.getElementById('status');
+    el.className = 'status ' + type;
+    el.innerHTML = msg;
+  }
+
+  function setRate(value, dateStr) {
+    document.getElementById('rate').textContent =
+      value ? value.toFixed(4) : '—';
+    document.getElementById('date-display').textContent = dateStr || '';
+  }
+
+  /* ── Formatter date Grist → YYYY-MM-DD ──────────────── */
+  function formatDate(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    if (typeof raw === 'number') return new Date(raw * 1000).toISOString().slice(0, 10);
+    return null;
+  }
+
+  /* ── API Frankfurter ────────────────────────────────── */
+  async function fetchRate(dateStr) {
+    const res = await fetch(
+      `https://api.frankfurter.dev/${dateStr}?from=EUR&to=USD`
+    );
+    if (!res.ok) throw new Error(`API indisponible (${res.status})`);
+    const data = await res.json();
+    return { rate: data.rates.USD, date: data.date };
+  }
+
+  /* ── Écriture Grist ─────────────────────────────────── */
+  async function writeRate(recordId, rate) {
+    await grist.docApi.applyUserActions([
+      ['UpdateRecord', tableId, recordId, { [COL_RATE]: rate }]
+    ]);
+  }
+
+  /* ── onRecords : maintenir le snapshot ──────────────── */
+  //  Appelé par Grist à chaque modification de la table.
+  //  On ne fait qu'enregistrer l'état — pas d'appel API ici.
+  grist.onRecords((records, mappings) => {
+    const newSnapshot = {};
+    for (const r of records) {
+      const colDate = mappings?.Date || COL_DATE;
+      const colRate = mappings?.Rate || COL_RATE;
+      newSnapshot[r.id] = {
+        date:  r[colDate],
+        eurusd: r[colRate],
+      };
+    }
+    snapshot = newSnapshot;
+  });
+
+  /* ── onRecord : détecter création ou changement de date */
+  grist.onRecord(async (record, mappings) => {
+    if (!record) { setStatus('Aucune ligne sélectionnée.', 'skip'); return; }
+
+    tableId = await grist.getSelectedTableId();
+
+    const colDate = mappings?.Date || COL_DATE;
+    const colRate = mappings?.Rate || COL_RATE;
+
+    const rawDate      = record[colDate];
+    const currentRate  = record[colRate];
+    const dateStr      = formatDate(rawDate);
+
+    // Afficher l'état courant dans tous les cas
+    setRate(currentRate || null, dateStr);
+
+    // Pas de date → rien à faire
+    if (!dateStr) {
+      setStatus('Aucune date dans cette ligne.', 'skip');
+      return;
+    }
+
+    // Lire l'état précédent depuis le snapshot
+    const prev = snapshot[record.id];
+
+    const isNewRecord     = !prev;
+    const dateChanged     = prev && formatDate(prev.date) !== dateStr;
+    const shouldFetchRate = isNewRecord || dateChanged;
+
+    // Ni nouvelle ligne ni changement de date → afficher sans appel API
+    if (!shouldFetchRate) {
+      setStatus(
+        currentRate
+          ? 'Taux enregistré — aucun changement détecté.'
+          : 'Taux manquant mais date inchangée.',
+        'skip'
+      );
+      return;
+    }
+
+    // Nouvelle ligne ou date modifiée → appeler l'API
+    const reason = isNewRecord ? 'nouvelle ligne' : 'date modifiée';
+    setStatus(
+      `<span class="spinner"></span>Récupération (${reason})…`,
+      'loading'
+    );
+
+    try {
+      const { rate, date } = await fetchRate(dateStr);
+      await writeRate(record.id, rate);
+      setRate(rate, date);
+      setStatus(`✓ Taux mis à jour (${reason}).`, 'ok');
+    } catch(e) {
+      setStatus('Erreur : ' + e.message, 'error');
+      console.error(e);
+    }
+  });
+
+  /* ── Initialisation ─────────────────────────────────── */
+  grist.ready({
+    requiredAccess: 'full',
+    columns: [
+      { name: 'Date', type: 'Date',    title: 'Colonne date' },
+      { name: 'Rate', type: 'Numeric', title: 'Colonne taux EUR/USD' },
+    ]
+  });
+</script>
+</body>
+</html>
+```
+
+---
+
+## Pourquoi cette approche fonctionne
+
+`onRecords` est appelé avant `onRecord` à chaque modification. Le snapshot contient donc toujours l'état **avant** le changement courant au moment où `onRecord` s'exécute.
+```
+Utilisateur modifie la date de la ligne #5
+        │
+        ├── onRecords() → snapshot mis à jour avec TOUTES les lignes
+        │                 snapshot[5].date = ancienne valeur
+        │
+        └── onRecord()  → reçoit la ligne #5 avec la NOUVELLE date
+                          compare record.date ≠ snapshot[5].date
+                          → déclenche l'appel API
