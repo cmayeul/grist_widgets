@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grist Form Widget</title>
+
+  <script src="https://unpkg.com/@bpmn-io/form-js@1.9.1/dist/form-viewer.umd.js"></script>
+  <link  href="https://unpkg.com/@bpmn-io/form-js@1.9.1/dist/assets/form-js.css" rel="stylesheet" />
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #FAFAF7;
+      --surface:   #FFFFFF;
+      --ink:       #1A1A1A;
+      --ink-muted: #6E6E6E;
+      --ink-faint: #B0B0A8;
+      --accent:    #C8502A;
+      --accent-bg: #FDF1ED;
+      --green:     #2A7A4B;
+      --green-bg:  #EDF7F2;
+      --border:    #E8E8E4;
+      --border-strong: #D0D0C8;
+      --serif:     'Instrument Serif', Georgia, serif;
+      --sans:      'DM Sans', sans-serif;
+      --mono:      'DM Mono', monospace;
+      --radius:    10px;
+      --radius-sm: 6px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ─── Layout ─── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ─── Header ─── */
+    #header {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    #header-left {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    #table-name {
+      font-family: var(--serif);
+      font-size: 17px;
+      color: var(--ink);
+      font-style: italic;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #record-badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-faint);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    #header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* ─── Buttons ─── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink-muted);
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--bg); border-color: var(--border-strong); color: var(--ink); }
+    .btn:active { transform: scale(.98); }
+
+    .btn-primary {
+      background: var(--ink);
+      color: white;
+      border-color: var(--ink);
+    }
+    .btn-primary:hover { background: #333; border-color: #333; color: white; }
+
+    .btn-new {
+      background: var(--green-bg);
+      color: var(--green);
+      border-color: #B8DFC9;
+    }
+    .btn-new:hover { background: #D8EFE3; border-color: var(--green); }
+
+    .btn-icon {
+      padding: 6px 8px;
+      font-size: 14px;
+    }
+
+    /* ─── Mode indicator ─── */
+    .mode-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 99px;
+    }
+    .mode-pill.edit   { background: #EEF3FE; color: #2C5FD4; }
+    .mode-pill.create { background: var(--green-bg); color: var(--green); }
+    .mode-pill.anon   { background: var(--accent-bg); color: var(--accent); }
+    .mode-pill .dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ─── Main content ─── */
+    #main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 20px;
+    }
+
+    #form-wrap {
+      max-width: 580px;
+      margin: 0 auto;
+    }
+
+    /* ─── Empty / loading states ─── */
+    #state-empty, #state-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 260px;
+      gap: 10px;
+      color: var(--ink-faint);
+      text-align: center;
+    }
+
+    #state-empty .icon, #state-loading .icon {
+      font-size: 36px;
+      opacity: .4;
+    }
+
+    #state-empty p, #state-loading p {
+      font-size: 13px;
+      max-width: 260px;
+      line-height: 1.6;
+    }
+
+    .spinner {
+      width: 22px; height: 22px;
+      border: 2px solid var(--border);
+      border-top-color: var(--ink-muted);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Toast notifications ─── */
+    #toasts {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      padding: 9px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      box-shadow: 0 4px 16px rgba(0,0,0,.12);
+      animation: toastIn .2s ease;
+      white-space: nowrap;
+    }
+    .toast.ok  { background: var(--ink); color: white; }
+    .toast.err { background: var(--accent); color: white; }
+    @keyframes toastIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+    /* ─── Config panel ─── */
+    #config-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.2);
+      z-index: 100;
+      backdrop-filter: blur(2px);
+    }
+    #config-overlay.open { display: block; }
+
+    #config-panel {
+      position: fixed;
+      top: 48px;
+      right: 12px;
+      width: 280px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 32px rgba(0,0,0,.12);
+      z-index: 101;
+      overflow: hidden;
+      transform: translateY(-4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform .15s, opacity .15s;
+    }
+    #config-panel.open {
+      transform: none;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #config-panel header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+
+    #config-panel section { padding: 14px; }
+
+    .field-group { margin-bottom: 14px; }
+    .field-group:last-child { margin-bottom: 0; }
+
+    .field-label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .field-select {
+      width: 100%;
+      padding: 7px 10px;
+      font-family: var(--sans);
+      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg);
+      color: var(--ink);
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236E6E6E'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .field-select:focus { border-color: var(--ink); }
+
+    #config-panel footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    /* ─── form-js overrides ─── */
+    .fjs-container {
+      font-family: var(--sans) !important;
+    }
+
+    .fjs-form-field-label {
+      font-family: var(--sans) !important;
+      font-size: 13px !important;
+      font-weight: 500 !important;
+      color: var(--ink) !important;
+      margin-bottom: 5px !important;
+    }
+
+    .fjs-input,
+    .fjs-textarea,
+    .fjs-select {
+      font-family: var(--sans) !important;
+      font-size: 13px !important;
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius-sm) !important;
+      background: var(--surface) !important;
+      color: var(--ink) !important;
+      transition: border-color .15s !important;
+    }
+
+    .fjs-input:focus,
+    .fjs-textarea:focus,
+    .fjs-select:focus {
+      border-color: var(--ink) !important;
+      box-shadow: none !important;
+      outline: none !important;
+    }
+
+    /* Submit button override */
+    .fjs-container .fjs-button[type="submit"] {
+      font-family: var(--sans) !important;
+      font-weight: 600 !important;
+      font-size: 13px !important;
+      background: var(--ink) !important;
+      color: white !important;
+      border: none !important;
+      border-radius: var(--radius-sm) !important;
+      padding: 9px 20px !important;
+      cursor: pointer !important;
+      transition: background .15s !important;
+      letter-spacing: .02em !important;
+    }
+
+    .fjs-container .fjs-button[type="submit"]:hover {
+      background: #333 !important;
+    }
+
+    /* Error states */
+    .fjs-form-field-error {
+      font-size: 11px !important;
+      color: var(--accent) !important;
+      margin-top: 3px !important;
+    }
+
+    /* Divider between form sections */
+    #form-wrap hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <div id="header">
+    <div id="header-left">
+      <span id="table-name">Chargement…</span>
+      <span id="record-badge" style="display:none"></span>
+    </div>
+    <div id="header-right">
+      <span class="mode-pill" id="mode-pill" style="display:none"></span>
+      <button class="btn btn-new" id="btn-new" onclick="newRecord()" style="display:none">
+        + Nouveau
+      </button>
+      <button class="btn btn-icon" id="btn-config" onclick="toggleConfig()" title="Configuration">⚙</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="form-wrap">
+      <div id="state-loading">
+        <div class="spinner"></div>
+        <p>Connexion à Grist…</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toasts -->
+<div id="toasts"></div>
+
+<!-- Config overlay -->
+<div id="config-overlay" onclick="closeConfig()"></div>
+
+<!-- Config panel -->
+<div id="config-panel">
+  <header>Configuration du widget</header>
+  <section>
+    <div class="field-group">
+      <label class="field-label" for="sel-val-table">Table des validations</label>
+      <select class="field-select" id="sel-val-table"></select>
+    </div>
+  </section>
+  <footer>
+    <button class="btn" onclick="closeConfig()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveConfig()">Enregistrer</button>
+  </footer>
+</div>
+
+<!-- Toasts -->
+<div id="toasts"></div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   ÉTAT GLOBAL
+═══════════════════════════════════════════════ */
+let viewer      = null;
+let tableId     = null;
+let recordId    = null;
+let lastRecord  = null;
+let isAnon      = false;
+let currentSchema = null;
+
+/* ═══════════════════════════════════════════════
+   UTILITAIRES UI
+═══════════════════════════════════════════════ */
+function toast(msg, type = 'ok') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function setLoading(on) {
+  const wrap = document.getElementById('form-wrap');
+  if (on) {
+    wrap.innerHTML = `
+      <div id="state-loading">
+        <div class="spinner"></div>
+        <p>Chargement du formulaire…</p>
+      </div>`;
+  }
+}
+
+function setEmpty(msg) {
+  document.getElementById('form-wrap').innerHTML = `
+    <div id="state-empty">
+      <div class="icon">◻</div>
+      <p>${msg}</p>
+    </div>`;
+}
+
+function setMode(mode) {
+  const pill = document.getElementById('mode-pill');
+  pill.style.display = 'inline-flex';
+  const modes = {
+    edit:   { cls: 'edit',   label: 'Édition' },
+    create: { cls: 'create', label: 'Nouveau' },
+    anon:   { cls: 'anon',   label: 'Public'  },
+  };
+  const m = modes[mode] || modes.edit;
+  pill.className = `mode-pill ${m.cls}`;
+  pill.innerHTML = `<span class="dot"></span>${m.label}`;
+}
+
+/* ═══════════════════════════════════════════════
+   BLOC 1 — COLONNES DE LA TABLE
+═══════════════════════════════════════════════ */
+async function getColumns(tId) {
+  const tables = await grist.docApi.fetchTable('_grist_Tables');
+  const cols   = await grist.docApi.fetchTable('_grist_Tables_column');
+  const ref    = tables.id[tables.tableId.indexOf(tId)];
+
+  const result = [];
+  cols.id.forEach((_, i) => {
+    if (cols.parentId[i] !== ref)          return;
+    if (cols.colId[i] === 'manualSort')    return;
+    if (cols.colId[i].startsWith('grist')) return;
+
+    let widgetOptions = {};
+    try { widgetOptions = JSON.parse(cols.widgetOptions[i] || '{}'); } catch(_) {}
+
+    result.push({
+      colId:        cols.colId[i],
+      label:        cols.label[i] || cols.colId[i],
+      type:         (cols.type[i] || 'Text').split(':')[0],
+      widgetOptions,
+    });
+  });
+  return result;
+}
+
+/* ═══════════════════════════════════════════════
+   BLOC 2 — GÉNÉRATION DU SCHÉMA FORM-JS
+═══════════════════════════════════════════════ */
+function buildSchema(tId, columns, validations) {
+  const TYPE_MAP = {
+    Text:        'textfield',
+    Int:         'number',
+    Numeric:     'number',
+    Bool:        'checkbox',
+    Date:        'datetime',
+    DateTime:    'datetime',
+    Choice:      'select',
+    Attachments: 'filepicker',
+  };
+
+  const components = columns.map(col => {
+    const type = TYPE_MAP[col.type] || 'textfield';
+    const comp = {
+      type,
+      id:    col.colId,
+      key:   col.colId,
+      label: col.label,
+    };
+
+    if (col.type === 'Choice' && col.widgetOptions?.choices) {
+      comp.values = col.widgetOptions.choices.map(c => ({ label: c, value: c }));
+    }
+
+    if (col.type === 'Attachments') {
+      comp.multiple = true;
+    }
+
+    if (validations[col.colId]) {
+      comp.validate = validations[col.colId];
+    }
+
+    return comp;
+  });
+
+  components.push({
+    type: 'button', id: 'submit-btn',
+    label: 'Envoyer', action: 'submit',
+  });
+
+  return { schemaVersion: 16, type: 'default', id: tId, components };
+}
+
+/* ═══════════════════════════════════════════════
+   BLOC 3 — VALIDATIONS DEPUIS LA TABLE GRIST
+═══════════════════════════════════════════════ */
+async function getValidationsTableName() {
+  try {
+    const opts = await grist.widgetApi.getOptions();
+    return (opts && opts.validationsTable) || null;
+  } catch(_) { return null; }
+}
+
+async function getValidations(tId) {
+  const tableName = await getValidationsTableName();
+  if (!tableName) return {};
+
+  let rows;
+  try { rows = await grist.docApi.fetchTable(tableName); }
+  catch(_) { return {}; }
+
+  const result = {};
+  rows.colonne.forEach((col, i) => {
+    // Filtrer par table source si la colonne existe
+    if (rows.source_table && rows.source_table[i] &&
+        rows.source_table[i] !== tId) return;
+
+    if (!result[col]) result[col] = {};
+    const type = rows.type_regle[i];
+    const val  = rows.valeur[i];
+    const msg  = rows.message[i] || '';
+
+    if (type === 'required')  result[col].required  = true;
+    if (type === 'min')       result[col].min        = Number(val);
+    if (type === 'max')       result[col].max        = Number(val);
+    if (type === 'minLength') result[col].minLength  = Number(val);
+    if (type === 'maxLength') result[col].maxLength  = Number(val);
+    if (type === 'regex')     result[col].pattern    = { value: val, message: msg };
+  });
+  return result;
+}
+
+/* ═══════════════════════════════════════════════
+   BLOC 4 — PIÈCES JOINTES
+═══════════════════════════════════════════════ */
+async function uploadFiles(files) {
+  const tokenInfo = await grist.docApi.getAccessToken({ readOnly: false });
+  const ids = [];
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append('upload', file, file.name);
+    const res = await fetch(`${tokenInfo.baseUrl}/attachments`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${tokenInfo.token}` },
+      body:    fd,
+    });
+    if (!res.ok) throw new Error(`Upload échoué : ${file.name}`);
+    const result = await res.json();
+    ids.push(...result);
+  }
+  return ids;
+}
+
+async function processAttachments(data) {
+  const processed = { ...data };
+  for (const [key, val] of Object.entries(processed)) {
+    if (Array.isArray(val) && val.length && val[0] instanceof File) {
+      processed[key] = ['L', ...await uploadFiles(val)];
+    }
+  }
+  return processed;
+}
+
+/* ═══════════════════════════════════════════════
+   RENDU DU FORMULAIRE
+═══════════════════════════════════════════════ */
+async function renderForm(schema, initialData, mode) {
+  const wrap = document.getElementById('form-wrap');
+  if (viewer) { try { viewer.destroy(); } catch(_){} viewer = null; }
+  wrap.innerHTML = '';
+
+  const FormClass = (window.FormViewer && window.FormViewer.Form)
+                 || window.Form;
+
+  if (!FormClass) {
+    wrap.innerHTML = `<div id="state-empty"><div class="icon">⚠</div>
+      <p>Impossible de charger form-js. Vérifiez votre connexion.</p></div>`;
+    return;
+  }
+
+  try {
+    viewer = new FormClass({ container: wrap });
+    await viewer.importSchema(schema, initialData || {});
+    currentSchema = schema;
+
+    viewer.on('submit', async event => {
+      try {
+        const data = await processAttachments(event.data);
+
+        if (mode === 'edit') {
+          await grist.docApi.applyUserActions([
+            ['UpdateRecord', tableId, recordId, data]
+          ]);
+          toast('✓ Fiche mise à jour.');
+        } else {
+          // mode 'create' ou 'anon'
+          await grist.docApi.applyUserActions([
+            ['AddRecord', tableId, null, data]
+          ]);
+          toast('✓ Enregistrement créé.');
+          // Remettre le formulaire vierge
+          await viewer.importSchema(schema, {});
+        }
+      } catch(e) {
+        toast('Erreur : ' + e.message, 'err');
+        console.error(e);
+      }
+    });
+
+  } catch(e) {
+    wrap.innerHTML = `<div id="state-empty"><div class="icon">⚠</div>
+      <p>Schéma invalide : ${e.message}</p></div>`;
+    console.error(e);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   NOUVELLE LIGNE
+═══════════════════════════════════════════════ */
+async function newRecord() {
+  if (!tableId || !currentSchema) return;
+  setMode('create');
+  document.getElementById('record-badge').style.display = 'none';
+  recordId = null;
+  await renderForm(currentSchema, {}, 'create');
+  toast('Nouveau formulaire vierge.');
+}
+
+/* ═══════════════════════════════════════════════
+   PANNEAU CONFIGURATION
+═══════════════════════════════════════════════ */
+function toggleConfig() {
+  const panel   = document.getElementById('config-panel');
+  const overlay = document.getElementById('config-overlay');
+  const isOpen  = panel.classList.contains('open');
+  if (isOpen) {
+    closeConfig();
+  } else {
+    panel.classList.add('open');
+    overlay.classList.add('open');
+    populateValTableSelect();
+  }
+}
+
+function closeConfig() {
+  document.getElementById('config-panel').classList.remove('open');
+  document.getElementById('config-overlay').classList.remove('open');
+}
+
+async function populateValTableSelect() {
+  const sel     = document.getElementById('sel-val-table');
+  const current = await getValidationsTableName();
+
+  let tables;
+  try { tables = await grist.docApi.fetchTable('_grist_Tables'); }
+  catch(_) { return; }
+
+  sel.innerHTML = '<option value="">— aucune —</option>';
+  tables.tableId.forEach(id => {
+    const o = document.createElement('option');
+    o.value = o.textContent = id;
+    if (id === current) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+async function saveConfig() {
+  const name = document.getElementById('sel-val-table').value;
+  try {
+    await grist.widgetApi.setOptions({ validationsTable: name || null });
+    closeConfig();
+    toast('Configuration enregistrée.');
+    if (lastRecord) await init(lastRecord);
+    else if (isAnon) await initAnon();
+  } catch(e) {
+    toast('Erreur config : ' + e.message, 'err');
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   POINT D'ENTRÉE — LIGNE SÉLECTIONNÉE
+═══════════════════════════════════════════════ */
+async function init(record) {
+  lastRecord = record;
+  recordId   = record.id;
+  isAnon     = false;
+
+  setLoading(true);
+
+  try {
+    tableId = await grist.getSelectedTableId();
+
+    // Mise à jour de l'UI
+    document.getElementById('table-name').textContent = tableId;
+    document.getElementById('record-badge').textContent = `#${record.id}`;
+    document.getElementById('record-badge').style.display = 'inline';
+    document.getElementById('btn-new').style.display = 'inline-flex';
+    setMode('edit');
+
+    const [columns, validations] = await Promise.all([
+      getColumns(tableId),
+      getValidations(tableId),
+    ]);
+
+    const schema = buildSchema(tableId, columns, validations);
+    await renderForm(schema, record, 'edit');
+
+  } catch(e) {
+    toast('Erreur chargement : ' + e.message, 'err');
+    setEmpty('Une erreur est survenue. Vérifiez la console.');
+    console.error(e);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   POINT D'ENTRÉE — MODE ANONYME
+═══════════════════════════════════════════════ */
+async function initAnon() {
+  isAnon    = true;
+  recordId  = null;
+  lastRecord = null;
+
+  setLoading(true);
+
+  try {
+    tableId = await grist.getSelectedTableId();
+    document.getElementById('table-name').textContent = tableId;
+    document.getElementById('record-badge').style.display = 'none';
+    document.getElementById('btn-new').style.display = 'none';
+    setMode('anon');
+
+    const [columns, validations] = await Promise.all([
+      getColumns(tableId),
+      getValidations(tableId),
+    ]);
+
+    const schema = buildSchema(tableId, columns, validations);
+    await renderForm(schema, {}, 'anon');
+
+  } catch(e) {
+    toast('Erreur : ' + e.message, 'err');
+    setEmpty('Impossible de charger le formulaire.');
+    console.error(e);
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   INITIALISATION GRIST
+═══════════════════════════════════════════════ */
+grist.ready({ requiredAccess: 'full' });
+
+grist.onRecord(record => {
+  if (!record) {
+    // Aucune ligne sélectionnée → mode anonyme/création
+    initAnon();
+  } else {
+    init(record);
+  }
+});
+</script>
+</body>
+</html>
