@@ -9,11 +9,13 @@
     body {
       font-family: sans-serif;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      min-height: 100vh;
       margin: 0;
       background: #f9f9f9;
+      padding: 16px;
     }
     #card {
       background: white;
@@ -22,6 +24,8 @@
       box-shadow: 0 2px 12px rgba(0,0,0,.08);
       text-align: center;
       min-width: 220px;
+      width: 100%;
+      max-width: 400px;
     }
     #label {
       font-size: 11px;
@@ -43,6 +47,32 @@
     #status.ok      { color: #2a7a4b; }
     #status.skip    { color: #aaa; }
     #status.error   { color: #c8502a; }
+
+    /* ── Debug panel ── */
+    #debug {
+      margin-top: 16px;
+      width: 100%;
+      max-width: 400px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-family: monospace;
+      font-size: 11px;
+      color: #7ec8e3;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #debug-title {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #666;
+      margin-bottom: 6px;
+      text-align: center;
+    }
+
     .spinner {
       display: inline-block;
       width: 12px; height: 12px;
@@ -64,11 +94,19 @@
   <div id="status" class="skip">En attente…</div>
 </div>
 
+<div id="debug-title">Debug — valeurs brutes reçues de Grist</div>
+<div id="debug">En attente d'un enregistrement…</div>
+
 <script>
   /* ── État ───────────────────────────────────────────── */
   let tableId  = null;
   let snapshot = {};
-  // snapshot = { [recordId]: { date: valeur_brute, rate: valeur } }
+
+  /* ── Debug ──────────────────────────────────────────── */
+  function debug(obj) {
+    document.getElementById('debug').textContent =
+      JSON.stringify(obj, null, 2);
+  }
 
   /* ── UI ─────────────────────────────────────────────── */
   function setStatus(msg, type) {
@@ -83,17 +121,31 @@
     document.getElementById('date-display').textContent = dateStr || '';
   }
 
-  /* ── Formater timestamp Grist → YYYY-MM-DD ──────────── */
+  /* ── Formater une date vers YYYY-MM-DD ──────────────────
+     Grist peut transmettre les dates de plusieurs façons :
+     - timestamp en secondes (number)
+     - chaîne ISO "2026-03-01"
+     - chaîne avec heure "2026-03-01T00:00:00Z"
+     On gère tous les cas.                                */
   function formatDate(raw) {
-    if (!raw && raw !== 0) return null;
-    if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    if (raw == null || raw === '' || raw === false) return null;
+
+    // Nombre : timestamp en secondes depuis epoch
     if (typeof raw === 'number') {
-      const d    = new Date(raw * 1000);
+      if (raw === 0) return null;
+      const d = new Date(raw * 1000);
       const yyyy = d.getUTCFullYear();
       const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
       const dd   = String(d.getUTCDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
     }
+
+    // Chaîne : extraire la partie YYYY-MM-DD quelle que soit la forme
+    if (typeof raw === 'string') {
+      const match = raw.match(/(\d{4}-\d{2}-\d{2})/);
+      return match ? match[1] : null;
+    }
+
     return null;
   }
 
@@ -111,10 +163,6 @@
 
   /* ── Écriture dans Grist ────────────────────────────── */
   async function writeRate(recordId, rate) {
-    // On utilise la colonne mappée "Rate" via applyUserActions.
-    // mapColumnNames() nous a déjà donné la valeur normalisée,
-    // mais pour écrire on a besoin du vrai colId Grist —
-    // grist.mapColumnNamesBack() fait la conversion inverse.
     await grist.docApi.applyUserActions([
       ['UpdateRecord', tableId, recordId,
         grist.mapColumnNamesBack({ Rate: rate })
@@ -122,19 +170,13 @@
     ]);
   }
 
-  /* ── onRecords : maintenir le snapshot ──────────────── */
-  // Appelé avant onRecord à chaque changement.
-  // On stocke l'état précédent de toutes les lignes.
+  /* ── onRecords : snapshot ───────────────────────────── */
   grist.onRecords((records, mappings) => {
     const next = {};
     for (const r of records) {
-      // mapColumnNames normalise les noms selon le mapping utilisateur
       const mapped = grist.mapColumnNames(r, mappings);
       if (!mapped) continue;
-      next[r.id] = {
-        date: mapped.Date,
-        rate: mapped.Rate,
-      };
+      next[r.id] = { date: mapped.Date, rate: mapped.Rate };
     }
     snapshot = next;
   });
@@ -144,15 +186,20 @@
     if (!record) {
       setStatus('Aucune ligne sélectionnée.', 'skip');
       setRate(null, null);
+      debug({ record: null });
       return;
     }
 
-    // Récupérer l'id de la table (mis en cache)
-    if (!tableId) {
-      tableId = await grist.getSelectedTableId();
-    }
+    if (!tableId) tableId = await grist.getSelectedTableId();
 
-    // mapColumnNames retourne null si le mapping est incomplet
+    // ── Afficher TOUTES les valeurs brutes pour le debug ──
+    debug({
+      record_id:   record.id,
+      record_raw:  record,
+      mappings:    mappings,
+      snapshot_prev: snapshot[record.id] || null,
+    });
+
     const mapped = grist.mapColumnNames(record, mappings);
     if (!mapped) {
       setStatus(
@@ -166,16 +213,27 @@
     const currentRate = mapped.Rate;
     const dateStr     = formatDate(rawDate);
 
-    // Afficher l'état courant immédiatement
+    // Afficher aussi les valeurs après mapping
+    debug({
+      record_id:    record.id,
+      raw_date:     rawDate,
+      raw_date_type: typeof rawDate,
+      formatted_date: dateStr,
+      current_rate: currentRate,
+      mappings:     mappings,
+      snapshot_prev: snapshot[record.id] || null,
+    });
+
     setRate(currentRate || null, dateStr);
 
-    // Pas de date → rien à faire
     if (!dateStr) {
-      setStatus('Aucune date dans cette ligne.', 'skip');
+      setStatus(
+        `Aucune date — valeur brute reçue : "${rawDate}" (${typeof rawDate})`,
+        'skip'
+      );
       return;
     }
 
-    // Détecter création ou changement de date via le snapshot
     const prev        = snapshot[record.id];
     const isNewRecord = !prev;
     const dateChanged = prev && formatDate(prev.date) !== dateStr;
@@ -188,7 +246,6 @@
       return;
     }
 
-    // Appel API uniquement si nouvelle ligne ou date modifiée
     const reason = isNewRecord ? 'nouvelle ligne' : 'date modifiée';
     setStatus(
       '<span class="spinner"></span>Récupération (' + reason + ')…',
