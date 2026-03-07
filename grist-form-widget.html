@@ -20,6 +20,13 @@
     input:focus, select:focus, textarea:focus {
       outline: none; border-color: #2f6fef;
     }
+    input.invalid, select.invalid { border-color: #c0392b !important; background: #fff8f8 !important; }
+
+    .field-error {
+      display: none; margin-top: 4px;
+      font-size: 11px; color: #c0392b;
+    }
+    .field-error.visible { display: block; }
 
     button {
       margin-top: 8px; padding: 8px 20px;
@@ -80,6 +87,123 @@ const TYPE_MAP = {
   'Attachments':  null,       // ignoré pour l'instant
 };
 
+// ── Validation rules par type Grist ───────────────────────────────────────
+// Chaque entrée : { test(value, field) → bool, message(field) → string }
+const VALIDATORS = {
+  'Int': [
+    {
+      test: v => v === '' || Number.isInteger(Number(v)),
+      message: f => `${f.label} doit être un nombre entier`,
+    },
+    {
+      test: v => v === '' || !isNaN(Number(v)),
+      message: f => `${f.label} : valeur numérique requise`,
+    },
+  ],
+  'Numeric': [
+    {
+      test: v => v === '' || !isNaN(Number(v)),
+      message: f => `${f.label} doit être un nombre (ex: 42.5)`,
+    },
+  ],
+  'Date': [
+    {
+      test: v => v === '' || !isNaN(Date.parse(v)),
+      message: f => `${f.label} : date invalide`,
+    },
+  ],
+  'DateTime': [
+    {
+      test: v => v === '' || !isNaN(Date.parse(v)),
+      message: f => `${f.label} : date/heure invalide`,
+    },
+  ],
+  // Email détecté par le nom de la colonne
+  '_email': [
+    {
+      test: v => v === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+      message: f => `${f.label} : adresse e-mail invalide`,
+    },
+  ],
+  // URL détecté par le nom de la colonne
+  '_url': [
+    {
+      test: v => { try { if (v === '') return true; new URL(v); return true; } catch { return false; } },
+      message: f => `${f.label} : URL invalide (ex: https://exemple.com)`,
+    },
+  ],
+  // Téléphone détecté par le nom de la colonne
+  '_phone': [
+    {
+      test: v => v === '' || /^[+\d\s\-().]{6,20}$/.test(v),
+      message: f => `${f.label} : numéro de téléphone invalide`,
+    },
+  ],
+};
+
+// Heuristique : deviner un validateur supplémentaire depuis le nom de la colonne
+function guessSemanticType(colId, label) {
+  const s = (colId + ' ' + label).toLowerCase();
+  if (/email|e-mail|courriel|mail/.test(s))   return '_email';
+  if (/url|site|web|http|lien|link/.test(s))  return '_url';
+  if (/phone|tel|mobile|portable|fax/.test(s)) return '_phone';
+  return null;
+}
+
+// Retourne la liste des règles applicables à un champ
+function getRules(field) {
+  const rules = [...(VALIDATORS[field.gristType] ?? [])];
+  const semantic = guessSemanticType(field.id, field.label);
+  if (semantic) rules.push(...(VALIDATORS[semantic] ?? []));
+  return rules;
+}
+
+// Valide un champ unique → { valid, message }
+function validateField(field, rawValue) {
+  // Champ requis
+  const isEmpty = rawValue === '' || rawValue === null || rawValue === undefined;
+  if (field.required && isEmpty) {
+    return { valid: false, message: `${field.label} est obligatoire` };
+  }
+  if (isEmpty) return { valid: true, message: '' };
+
+  for (const rule of getRules(field)) {
+    if (!rule.test(rawValue, field)) {
+      return { valid: false, message: rule.message(field) };
+    }
+  }
+  return { valid: true, message: '' };
+}
+
+// Affiche / efface l'erreur sur un champ
+function setFieldError(inputEl, errorEl, message) {
+  if (message) {
+    inputEl.classList.add('invalid');
+    errorEl.textContent = message;
+    errorEl.classList.add('visible');
+  } else {
+    inputEl.classList.remove('invalid');
+    errorEl.textContent = '';
+    errorEl.classList.remove('visible');
+  }
+}
+
+// Valide tout le formulaire → true si valide
+function validateAll() {
+  let allValid = true;
+  for (const field of schema) {
+    const inputEl = document.getElementById('field-' + field.id);
+    const errorEl = document.getElementById('error-' + field.id);
+    if (!inputEl || !errorEl) continue;
+
+    const raw = inputEl.type === 'checkbox' ? '' : inputEl.value;
+    const { valid, message } = validateField(field, raw);
+    setFieldError(inputEl, errorEl, valid ? '' : message);
+    if (!valid) allValid = false;
+  }
+  return allValid;
+}
+
 // ── Build schema from Grist metadata ──────────────────────────────────────
 async function buildSchema(tableName, visibleCols) {
   log('buildSchema', tableName, visibleCols);
@@ -113,14 +237,15 @@ async function buildSchema(tableName, visibleCols) {
     try { opts = JSON.parse(columns.widgetOptions[ci] || '{}'); } catch(e) {}
 
     const field = {
-      id:       colId,
-      label:    columns.label[ci] || colId,
+      id:        colId,
+      label:     columns.label[ci] || colId,
       gristType: rawType,
-      type:     htmlType || 'text',
-      choices:  opts.choices ?? [],
-      multiple: rawType === 'ChoiceList' || rawType === 'ReferenceList',
-      refTable: rawType.startsWith('Ref:') ? rawType.replace('Ref:', '') : null,
-      refLabel: opts.visibleCol ?? null,
+      type:      htmlType || 'text',
+      choices:   opts.choices ?? [],
+      multiple:  rawType === 'ChoiceList' || rawType === 'ReferenceList',
+      refTable:  rawType.startsWith('Ref:') ? rawType.replace('Ref:', '') : null,
+      refLabel:  opts.visibleCol ?? null,
+      required:  !columns.isFormula[ci] && columns.formula[ci] === '',
     };
 
     // Load reference options
@@ -144,7 +269,12 @@ async function buildSchema(tableName, visibleCols) {
     }
 
     result.push(field);
-    log('Champ ajouté:', colId, rawType, '->', field.type);
+    const rules = getRules(field);
+    const semantic = guessSemanticType(field.id, field.label);
+    log('Champ ajouté:', colId, rawType, '->', field.type,
+        rules.length ? `| ${rules.length} règle(s)` : '',
+        semantic ? `| sémantique: ${semantic}` : '',
+        field.required ? '| requis' : '');
   }
 
   return result;
@@ -205,7 +335,33 @@ function renderForm(fields, tableName) {
     input.dataset.fieldId = field.id;
     input.dataset.gristType = field.gristType;
     input.dataset.multiple = field.multiple ? 'true' : 'false';
+
+    // Marquer requis visuellement
+    if (field.required) {
+      label.innerHTML += ' <span style="color:#c0392b" title="Obligatoire">*</span>';
+    }
+
+    // Élément d'erreur inline
+    const errorEl = document.createElement('div');
+    errorEl.className = 'field-error';
+    errorEl.id = 'error-' + field.id;
+
+    // Validation live à la sortie du champ
+    input.addEventListener('blur', () => {
+      const raw = input.type === 'checkbox' ? '' : input.value;
+      const { valid, message } = validateField(field, raw);
+      setFieldError(input, errorEl, valid ? '' : message);
+    });
+    // Effacer l'erreur dès que l'utilisateur retape
+    input.addEventListener('input', () => {
+      if (input.classList.contains('invalid')) {
+        input.classList.remove('invalid');
+        errorEl.classList.remove('visible');
+      }
+    });
+
     div.appendChild(input);
+    div.appendChild(errorEl);
     container.appendChild(div);
   }
 
@@ -265,6 +421,15 @@ document.getElementById('btn-submit').addEventListener('click', async () => {
   btn.disabled = true;
 
   try {
+    // Validation complète avant envoi
+    const valid = validateAll();
+    log('Validation :', valid ? '✓ OK' : '✗ Erreurs détectées');
+    if (!valid) {
+      showMsg('err', '⚠️ Corrigez les erreurs avant d\'envoyer.');
+      btn.disabled = false;
+      return;
+    }
+
     const data = collectValues();
     log('Soumission dans', currentTable, ':', data);
 
@@ -275,23 +440,57 @@ document.getElementById('btn-submit').addEventListener('click', async () => {
     ]);
 
     log('✓ Enregistrement ajouté');
-    msg.textContent = '✓ Enregistrement ajouté avec succès';
-    msg.className = 'ok';
+    showMsg('ok', '✓ Enregistrement ajouté avec succès');
 
     // Reset
     document.querySelectorAll('[data-field-id]').forEach(input => {
       if (input.type === 'checkbox') input.checked = false;
       else input.value = '';
     });
+    // Effacer les erreurs résiduelles
+    document.querySelectorAll('.field-error.visible').forEach(el => {
+      el.classList.remove('visible');
+      document.getElementById(el.id.replace('error-', 'field-'))
+              ?.classList.remove('invalid');
+    });
 
   } catch(e) {
     log('✗ Erreur soumission:', e.message);
-    msg.textContent = 'Erreur : ' + e.message;
-    msg.className = 'err';
+    showMsg('err', friendlyError(e));
   } finally {
     btn.disabled = false;
-    setTimeout(() => { if (msg.className === 'ok') msg.style.display = 'none'; }, 3000);
   }
+});
+
+// ── Message helpers ────────────────────────────────────────────────────────
+function showMsg(type, text) {
+  const msg = document.getElementById('msg');
+  msg.style.display = 'block'; // forcer au cas où un style inline traîne
+  msg.className = type;
+  msg.textContent = text;
+  if (type === 'ok') {
+    setTimeout(() => { msg.style.display = 'none'; msg.className = ''; }, 3500);
+  }
+  // Les erreurs restent affichées jusqu'à la prochaine action
+}
+
+// Transforme l'erreur brute en message lisible
+function friendlyError(e) {
+  const raw = e?.message ?? String(e);
+
+  if (raw.includes('Table not found') || raw.includes('No table'))
+    return '❌ Table introuvable. Vérifiez la configuration du widget.';
+  if (raw.includes('Permission') || raw.includes('403') || raw.includes('Access'))
+    return '❌ Permission refusée. Le widget nécessite l\'accès "full".';
+  if (raw.includes('column') || raw.includes('Column'))
+    return `❌ Colonne inconnue dans la table cible.\nDétail : ${raw}`;
+  if (raw.includes('Network') || raw.includes('fetch') || raw.includes('Failed to fetch'))
+    return '❌ Erreur réseau. Vérifiez votre connexion.';
+  if (raw.includes('Table cible inconnue'))
+    return '❌ Table cible non détectée. Rechargez le widget.';
+
+  return `❌ Erreur lors de l'envoi : ${raw}`;
+}
 });
 
 // ── Grist init ─────────────────────────────────────────────────────────────
