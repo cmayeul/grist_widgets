@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grist Form Widget</title>
+
+  <!-- Grist Plugin API -->
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+
+  <!-- form-js viewer + editor -->
+  <link rel="stylesheet" href="https://unpkg.com/@bpmn-io/form-js@1.9.0/dist/assets/form-js.css" />
+  <link rel="stylesheet" href="https://unpkg.com/@bpmn-io/form-js@1.9.0/dist/assets/form-js-editor.css" />
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --c-bg:        #f8f7f5;
+      --c-surface:   #ffffff;
+      --c-border:    #e2e0db;
+      --c-text:      #1a1916;
+      --c-muted:     #7a7670;
+      --c-accent:    #2f6fef;
+      --c-accent-lt: #eef3fd;
+      --c-success:   #1e8a4a;
+      --c-error:     #c0392b;
+      --c-warning:   #d4860a;
+      --radius:      6px;
+      --shadow:      0 1px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+      --font:        'DM Sans', system-ui, sans-serif;
+      --font-mono:   'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap');
+
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      font-size: 13px;
+      color: var(--c-text);
+      background: var(--c-bg);
+    }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ──────────────────────────────────────────────── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--c-surface);
+      border-bottom: 1px solid var(--c-border);
+      min-height: 40px;
+      flex-shrink: 0;
+    }
+
+    #topbar .title {
+      font-weight: 600;
+      font-size: 13px;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #topbar .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    #topbar .badge.mode-form   { background: var(--c-accent-lt); color: var(--c-accent); }
+    #topbar .badge.mode-config { background: #fef3e2; color: var(--c-warning); }
+
+    /* ── Main area ────────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+    }
+
+    /* ── Form mode ────────────────────────────────────────────── */
+    #form-container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+    }
+
+    #form-container .form-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: var(--c-text);
+    }
+
+    /* form-js overrides */
+    .fjs-container {
+      font-family: var(--font) !important;
+    }
+
+    .fjs-form-field-label {
+      font-size: 12px !important;
+      font-weight: 500 !important;
+      color: var(--c-muted) !important;
+      text-transform: uppercase !important;
+      letter-spacing: .05em !important;
+      margin-bottom: 5px !important;
+    }
+
+    .fjs-input, .fjs-textarea, .fjs-select {
+      border: 1px solid var(--c-border) !important;
+      border-radius: var(--radius) !important;
+      font-family: var(--font) !important;
+      font-size: 13px !important;
+      padding: 7px 10px !important;
+      background: var(--c-surface) !important;
+      transition: border-color .15s, box-shadow .15s !important;
+    }
+
+    .fjs-input:focus, .fjs-textarea:focus, .fjs-select:focus {
+      outline: none !important;
+      border-color: var(--c-accent) !important;
+      box-shadow: 0 0 0 3px rgba(47,111,239,.12) !important;
+    }
+
+    .fjs-form-field-error {
+      font-size: 11px !important;
+      color: var(--c-error) !important;
+    }
+
+    /* Submit button */
+    #btn-submit {
+      margin-top: 20px;
+      padding: 9px 22px;
+      background: var(--c-accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+    }
+
+    #btn-submit:hover  { background: #1d5cd4; }
+    #btn-submit:active { transform: scale(.98); }
+    #btn-submit:disabled { background: var(--c-border); color: var(--c-muted); cursor: default; }
+
+    /* Feedback banner */
+    #feedback {
+      display: none;
+      margin-top: 16px;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    #feedback.success { background: #edfaf3; color: var(--c-success); border: 1px solid #b7e8cc; display: block; }
+    #feedback.error   { background: #fdf0ef; color: var(--c-error);   border: 1px solid #f5c4c0; display: block; }
+
+    /* File upload custom zone */
+    .attachment-zone {
+      border: 2px dashed var(--c-border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      position: relative;
+    }
+
+    .attachment-zone:hover,
+    .attachment-zone.dragover {
+      border-color: var(--c-accent);
+      background: var(--c-accent-lt);
+    }
+
+    .attachment-zone input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .attachment-zone .zone-label {
+      font-size: 12px;
+      color: var(--c-muted);
+      pointer-events: none;
+    }
+
+    .attachment-zone .zone-label strong {
+      color: var(--c-accent);
+      font-weight: 500;
+    }
+
+    .attachment-list {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .attachment-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--c-bg);
+      border: 1px solid var(--c-border);
+      border-radius: var(--radius);
+      font-size: 12px;
+    }
+
+    .attachment-item .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attachment-item .file-size { color: var(--c-muted); white-space: nowrap; }
+    .attachment-item .file-remove {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--c-muted);
+      font-size: 14px;
+      padding: 0 2px;
+      line-height: 1;
+    }
+    .attachment-item .file-remove:hover { color: var(--c-error); }
+
+    .uploading-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--c-muted);
+      margin-top: 8px;
+    }
+
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--c-border);
+      border-top-color: var(--c-accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Config mode ──────────────────────────────────────────── */
+    #editor-container {
+      height: 100%;
+      display: none;
+    }
+
+    #editor-container.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #editor-mount {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* editor toolbar */
+    #editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--c-surface);
+      border-top: 1px solid var(--c-border);
+      flex-shrink: 0;
+    }
+
+    .btn {
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background .15s, color .15s;
+    }
+
+    .btn-primary { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+    .btn-primary:hover { background: #1d5cd4; }
+
+    .btn-ghost { background: none; color: var(--c-muted); border-color: var(--c-border); }
+    .btn-ghost:hover { background: var(--c-bg); color: var(--c-text); }
+
+    .btn-danger { background: none; color: var(--c-error); border-color: #f5c4c0; }
+    .btn-danger:hover { background: #fdf0ef; }
+
+    #editor-toolbar .spacer { flex: 1; }
+
+    #editor-toolbar .info {
+      font-size: 11px;
+      color: var(--c-muted);
+    }
+
+    /* ── Empty / loading states ───────────────────────────────── */
+    .state-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      height: 100%;
+      padding: 40px;
+      text-align: center;
+      color: var(--c-muted);
+    }
+
+    .state-center .icon {
+      font-size: 36px;
+      opacity: .4;
+    }
+
+    .state-center p {
+      font-size: 13px;
+      max-width: 260px;
+      line-height: 1.5;
+    }
+
+    .state-center .btn { margin-top: 4px; }
+
+    /* ── No columns warning ───────────────────────────────────── */
+    #no-cols-warning {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="title" id="topbar-title">Formulaire</span>
+    <span class="badge mode-form" id="mode-badge">Formulaire</span>
+  </div>
+
+  <div id="main">
+    <!-- Loading -->
+    <div class="state-center" id="state-loading">
+      <div class="spinner" style="width:24px;height:24px;border-width:3px;"></div>
+      <p>Chargement…</p>
+    </div>
+
+    <!-- No columns mapped -->
+    <div class="state-center" id="state-no-cols" style="display:none">
+      <div class="icon">⚙️</div>
+      <p>Aucune colonne sélectionnée.<br/>Utilisez le panneau latéral pour choisir les colonnes à afficher.</p>
+    </div>
+
+    <!-- No schema yet -->
+    <div class="state-center" id="state-no-schema" style="display:none">
+      <div class="icon">📋</div>
+      <p>Aucun schéma de formulaire configuré.<br/>Ouvrez la configuration pour générer le formulaire depuis la table.</p>
+    </div>
+
+    <!-- Form viewer -->
+    <div id="form-container" style="display:none">
+      <div class="form-title" id="form-title"></div>
+      <div id="form-mount"></div>
+      <!-- Attachment fields are injected here by renderAttachmentFields() -->
+      <div id="attachment-fields"></div>
+      <button id="btn-submit">Envoyer</button>
+      <div id="feedback"></div>
+    </div>
+
+    <!-- Editor -->
+    <div id="editor-container">
+      <div id="editor-mount"></div>
+      <div id="editor-toolbar">
+        <span class="info" id="editor-info"></span>
+        <span class="spacer"></span>
+        <button class="btn btn-danger" id="btn-reset">Réinitialiser</button>
+        <button class="btn btn-ghost"  id="btn-cancel">Annuler</button>
+        <button class="btn btn-primary" id="btn-save">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- form-js UMD bundles -->
+<script src="https://unpkg.com/@bpmn-io/form-js@1.9.0/dist/form-viewer.umd.js"></script>
+<script src="https://unpkg.com/@bpmn-io/form-js@1.9.0/dist/form-editor.umd.js"></script>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+const state = {
+  mode:           'form',   // 'form' | 'config'
+  currentTable:   null,
+  visibleCols:    [],
+  colsMeta:       {},       // { colId: { type, label, choices, refTable, refLabel } }
+  formSchema:     null,     // schéma form-js sauvegardé
+  pendingSchema:  null,     // schéma en cours d'édition (non sauvegardé)
+  attachmentCols: [],       // colonnes de type Attachments
+  attachmentFiles:{},       // { colId: [File, ...] }
+  viewer:         null,
+  editor:         null,
+  formData:       {},       // dernières valeurs du viewer
+  accessToken:    null,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Type mapping Grist → form-js
+// ─────────────────────────────────────────────────────────────────────────────
+const TYPE_MAP = {
+  'Text':        'textfield',
+  'Numeric':     'number',
+  'Int':         'number',
+  'Date':        'date',
+  'DateTime':    'datetime',
+  'Bool':        'checkbox',
+  'Choice':      'select',
+  'ChoiceList':  'taglist',
+  'Reference':   'select',
+  'ReferenceList':'taglist',
+  'Attachments': null,      // géré hors form-js
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function showState(id) {
+  ['state-loading','state-no-cols','state-no-schema','form-container','editor-container']
+    .forEach(s => {
+      const el = document.getElementById(s);
+      if (!el) return;
+      if (s === 'editor-container') {
+        el.classList.toggle('active', s === id);
+      } else {
+        el.style.display = s === id ? (s === 'form-container' ? 'block' : 'flex') : 'none';
+      }
+    });
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  const badge = document.getElementById('mode-badge');
+  if (mode === 'config') {
+    badge.textContent = 'Configuration';
+    badge.className = 'badge mode-config';
+  } else {
+    badge.textContent = 'Formulaire';
+    badge.className = 'badge mode-form';
+  }
+}
+
+function showFeedback(type, msg) {
+  const el = document.getElementById('feedback');
+  el.textContent = msg;
+  el.className = type;
+  if (type === 'success') {
+    setTimeout(() => { el.style.display = 'none'; }, 3500);
+  }
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' o';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' Ko';
+  return (bytes/1048576).toFixed(1) + ' Mo';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Metadata helpers
+// ─────────────────────────────────────────────────────────────────────────────
+async function getColumnsMetadata(tableName) {
+  const [tables, columns] = await Promise.all([
+    grist.docApi.fetchTable('_grist_Tables'),
+    grist.docApi.fetchTable('_grist_Tables_column'),
+  ]);
+
+  const tableIdx = tables.tableId.indexOf(tableName);
+  if (tableIdx === -1) return {};
+  const tableRef = tables.id[tableIdx];
+
+  const meta = {};
+  for (let i = 0; i < columns.colId.length; i++) {
+    if (columns.parentId[i] !== tableRef) continue;
+    const colId = columns.colId[i];
+    if (colId.startsWith('_') || colId === 'manualSort') continue;
+
+    let opts = {};
+    try { opts = JSON.parse(columns.widgetOptions[i] || '{}'); } catch(e) {}
+
+    const rawType = columns.type[i] || 'Text';
+
+    meta[colId] = {
+      type:      rawType,
+      label:     columns.label[i] || colId,
+      required:  false,
+      choices:   opts.choices  ?? [],
+      refTable:  rawType.startsWith('Ref:')  ? rawType.replace('Ref:', '')  : null,
+      refLabel:  opts.visibleCol ?? 'id',
+    };
+  }
+  return meta;
+}
+
+async function loadRefOptions(colMeta) {
+  if (!colMeta.refTable) return [];
+  try {
+    const data = await grist.docApi.fetchTable(colMeta.refTable);
+    const labelCol = colMeta.refLabel !== 'id' && data[colMeta.refLabel]
+      ? colMeta.refLabel : Object.keys(data).find(k => k !== 'id') ?? 'id';
+    return data.id.map((id, i) => ({
+      label: String(data[labelCol][i] ?? id),
+      value: id,
+    }));
+  } catch(e) {
+    console.warn('loadRefOptions error', e);
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Schema generation from Grist metadata
+// ─────────────────────────────────────────────────────────────────────────────
+async function generateSchema(visibleCols, colsMeta) {
+  const components = [];
+
+  for (const colId of visibleCols) {
+    const meta = colsMeta[colId];
+    if (!meta) continue;
+    const fjsType = TYPE_MAP[meta.type] ?? 'textfield';
+
+    // Attachments handled separately
+    if (meta.type === 'Attachments') continue;
+
+    const component = {
+      type:  fjsType,
+      key:   colId,
+      label: meta.label,
+    };
+
+    // Choice → select with static values
+    if (meta.type === 'Choice' && meta.choices.length) {
+      component.values = meta.choices.map(c => ({ label: c, value: c }));
+    }
+
+    // ChoiceList → taglist with static values
+    if (meta.type === 'ChoiceList' && meta.choices.length) {
+      component.values = meta.choices.map(c => ({ label: c, value: c }));
+    }
+
+    // Reference → select, load options async
+    if (meta.type === 'Reference' || meta.type === 'ReferenceList') {
+      const opts = await loadRefOptions(meta);
+      component.values = opts;
+    }
+
+    // Date/DateTime
+    if (meta.type === 'Date') {
+      component.dateFormat = 'DD/MM/YYYY';
+    }
+    if (meta.type === 'DateTime') {
+      component.dateFormat = 'DD/MM/YYYY HH:mm';
+      component.timeFormat = 'HH:mm';
+    }
+
+    components.push(component);
+  }
+
+  return {
+    schemaVersion: 16,
+    type: 'default',
+    components,
+  };
+}
+
+// Reconcile: merge saved schema with current visible cols
+async function reconcileSchema(savedSchema, visibleCols, colsMeta) {
+  const visibleSet = new Set(visibleCols);
+
+  // Keep existing components whose column is still visible
+  const kept = (savedSchema.components || []).filter(c => visibleSet.has(c.key));
+
+  // Add newly visible columns not yet in schema
+  const existingKeys = new Set(kept.map(c => c.key));
+  const toAdd = visibleCols.filter(col => {
+    const meta = colsMeta[col];
+    return meta && TYPE_MAP[meta.type] !== null && !existingKeys.has(col);
+  });
+
+  const newComponents = await generateSchema(toAdd, colsMeta);
+
+  return {
+    ...savedSchema,
+    components: [...kept, ...newComponents.components],
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attachment fields (rendered outside form-js)
+// ─────────────────────────────────────────────────────────────────────────────
+function renderAttachmentFields() {
+  const container = document.getElementById('attachment-fields');
+  container.innerHTML = '';
+  state.attachmentCols = state.visibleCols.filter(
+    col => state.colsMeta[col]?.type === 'Attachments'
+  );
+
+  if (!state.attachmentCols.length) return;
+
+  for (const colId of state.attachmentCols) {
+    const meta = state.colsMeta[colId];
+    if (!state.attachmentFiles[colId]) state.attachmentFiles[colId] = [];
+
+    const wrapper = document.createElement('div');
+    wrapper.style.marginBottom = '16px';
+
+    wrapper.innerHTML = `
+      <div class="fjs-form-field-label">${meta.label}</div>
+      <div class="attachment-zone" id="zone-${colId}">
+        <input type="file" multiple id="file-input-${colId}" />
+        <div class="zone-label">
+          <strong>Cliquez</strong> ou déposez vos fichiers ici
+        </div>
+      </div>
+      <div class="attachment-list" id="list-${colId}"></div>
+    `;
+
+    container.appendChild(wrapper);
+
+    const zone  = wrapper.querySelector('.attachment-zone');
+    const input = wrapper.querySelector(`#file-input-${colId}`);
+
+    input.addEventListener('change', () => addFiles(colId, input.files));
+
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', ()  => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      addFiles(colId, e.dataTransfer.files);
+    });
+  }
+}
+
+function addFiles(colId, fileList) {
+  for (const file of fileList) {
+    state.attachmentFiles[colId].push(file);
+  }
+  renderFileList(colId);
+}
+
+function removeFile(colId, idx) {
+  state.attachmentFiles[colId].splice(idx, 1);
+  renderFileList(colId);
+}
+
+function renderFileList(colId) {
+  const list = document.getElementById(`list-${colId}`);
+  if (!list) return;
+  list.innerHTML = '';
+  for (let i = 0; i < state.attachmentFiles[colId].length; i++) {
+    const f = state.attachmentFiles[colId][i];
+    const item = document.createElement('div');
+    item.className = 'attachment-item';
+    item.innerHTML = `
+      <span class="file-name">${f.name}</span>
+      <span class="file-size">${formatSize(f.size)}</span>
+      <button class="file-remove" title="Supprimer">×</button>
+    `;
+    item.querySelector('.file-remove').onclick = () => removeFile(colId, i);
+    list.appendChild(item);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Upload attachment via Grist REST API
+// ─────────────────────────────────────────────────────────────────────────────
+async function getAccessToken() {
+  if (state.accessToken) return state.accessToken;
+  const token = await grist.getAccessToken({ readOnly: false });
+  state.accessToken = token;
+  return token;
+}
+
+async function uploadFile(file, tokenInfo) {
+  const fd = new FormData();
+  fd.append('upload', file, file.name);
+
+  const res = await fetch(`${tokenInfo.baseUrl}/attachments`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${tokenInfo.token}` },
+    body: fd,
+  });
+
+  if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
+  const ids = await res.json();
+  return ids[0]; // returns array of ids
+}
+
+async function uploadAllAttachments() {
+  const result = {};
+  const hasAttachments = state.attachmentCols.some(
+    c => state.attachmentFiles[c]?.length > 0
+  );
+  if (!hasAttachments) return result;
+
+  showUploading(true);
+  const tokenInfo = await getAccessToken();
+
+  for (const colId of state.attachmentCols) {
+    const files = state.attachmentFiles[colId] || [];
+    if (!files.length) continue;
+    const ids = [];
+    for (const file of files) {
+      const id = await uploadFile(file, tokenInfo);
+      ids.push(id);
+    }
+    result[colId] = ['L', ...ids]; // Grist list encoding
+  }
+
+  showUploading(false);
+  return result;
+}
+
+function showUploading(active) {
+  let el = document.getElementById('uploading-indicator');
+  if (active && !el) {
+    el = document.createElement('div');
+    el.id = 'uploading-indicator';
+    el.className = 'uploading-indicator';
+    el.innerHTML = '<div class="spinner"></div><span>Upload des pièces jointes…</span>';
+    document.getElementById('attachment-fields').appendChild(el);
+  } else if (!active && el) {
+    el.remove();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Form viewer
+// ─────────────────────────────────────────────────────────────────────────────
+async function initViewer(schema) {
+  destroyViewer();
+
+  const mount = document.getElementById('form-mount');
+  mount.innerHTML = '';
+
+  const title = document.getElementById('form-title');
+  title.textContent = schema.title || state.currentTable || 'Formulaire';
+
+  try {
+    state.viewer = new FormViewer.Form({
+      container: mount,
+      schema,
+      data: {},
+    });
+
+    await state.viewer.importSchema(schema);
+
+    state.viewer.on('changed', ({ data }) => {
+      state.formData = data;
+    });
+
+    renderAttachmentFields();
+    showState('form-container');
+    document.getElementById('form-container').style.display = 'block';
+
+  } catch(e) {
+    console.error('initViewer error', e);
+    showFeedback('error', 'Erreur lors du chargement du formulaire : ' + e.message);
+  }
+}
+
+function destroyViewer() {
+  if (state.viewer) {
+    try { state.viewer.destroy(); } catch(e) {}
+    state.viewer = null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Form submit
+// ─────────────────────────────────────────────────────────────────────────────
+document.getElementById('btn-submit').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-submit');
+
+  // Validate via form-js
+  if (state.viewer) {
+    try {
+      const result = await state.viewer.validate();
+      if (!result.valid) return; // form-js shows inline errors
+    } catch(e) {
+      // validate() may not exist in all versions — proceed anyway
+    }
+  }
+
+  btn.disabled = true;
+  document.getElementById('feedback').style.display = 'none';
+
+  try {
+    // Collect form-js data
+    const data = { ...state.formData };
+
+    // Clean booleans / nulls
+    for (const [k, v] of Object.entries(data)) {
+      if (v === '' || v === undefined) delete data[k];
+    }
+
+    // Upload attachments and merge IDs
+    const attachData = await uploadAllAttachments();
+    Object.assign(data, attachData);
+
+    if (!state.currentTable) throw new Error('Table cible non définie');
+
+    await grist.docApi.applyUserActions([
+      ['AddRecord', state.currentTable, null, data]
+    ]);
+
+    // Reset
+    if (state.viewer) {
+      await state.viewer.importSchema(state.formSchema);
+      state.formData = {};
+    }
+    state.attachmentCols.forEach(c => {
+      state.attachmentFiles[c] = [];
+      renderFileList(c);
+    });
+
+    showFeedback('success', '✓ Enregistrement ajouté avec succès');
+
+  } catch(e) {
+    console.error('submit error', e);
+    showFeedback('error', 'Erreur : ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Form editor
+// ─────────────────────────────────────────────────────────────────────────────
+async function initEditor(schema) {
+  destroyEditor();
+
+  const mount = document.getElementById('editor-mount');
+  mount.innerHTML = '';
+  mount.style.height = '100%';
+
+  state.pendingSchema = JSON.parse(JSON.stringify(schema));
+
+  try {
+    state.editor = new FormEditor.FormEditor({
+      container: mount,
+      schema: state.pendingSchema,
+    });
+
+    await state.editor.importSchema(state.pendingSchema);
+
+    state.editor.on('changed', ({ schema }) => {
+      state.pendingSchema = schema;
+    });
+
+    const info = document.getElementById('editor-info');
+    info.textContent = `Table : ${state.currentTable || '—'}  •  ${state.visibleCols.length} colonne(s) visible(s)`;
+
+    showState('editor-container');
+    setMode('config');
+
+  } catch(e) {
+    console.error('initEditor error', e);
+    showFeedback('error', 'Erreur éditeur : ' + e.message);
+    exitConfigMode();
+  }
+}
+
+function destroyEditor() {
+  if (state.editor) {
+    try { state.editor.destroy(); } catch(e) {}
+    state.editor = null;
+  }
+}
+
+// Save button
+document.getElementById('btn-save').addEventListener('click', async () => {
+  if (!state.pendingSchema) return;
+  await grist.setOption('formSchema', state.pendingSchema);
+  state.formSchema = state.pendingSchema;
+  exitConfigMode();
+});
+
+// Cancel button
+document.getElementById('btn-cancel').addEventListener('click', () => {
+  exitConfigMode();
+});
+
+// Reset button
+document.getElementById('btn-reset').addEventListener('click', async () => {
+  if (!confirm('Réinitialiser le formulaire depuis la table Grist ? La configuration actuelle sera perdue.')) return;
+  const fresh = await generateSchema(state.visibleCols, state.colsMeta);
+  await state.editor.importSchema(fresh);
+  state.pendingSchema = fresh;
+});
+
+async function exitConfigMode() {
+  destroyEditor();
+  setMode('form');
+  if (state.formSchema) {
+    await initViewer(state.formSchema);
+  } else if (state.visibleCols.length) {
+    showState('state-no-schema');
+  } else {
+    showState('state-no-cols');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main sync logic
+// ─────────────────────────────────────────────────────────────────────────────
+async function syncForm(visibleCols) {
+  if (!visibleCols || visibleCols.length === 0) {
+    showState('state-no-cols');
+    return;
+  }
+
+  state.visibleCols = visibleCols;
+
+  // Load column metadata
+  if (state.currentTable) {
+    state.colsMeta = await getColumnsMetadata(state.currentTable);
+  }
+
+  const saved = state.formSchema;
+
+  let schema;
+  if (!saved) {
+    // First time: auto-generate
+    schema = await generateSchema(visibleCols, state.colsMeta);
+    // Don't auto-save — let user confirm via config panel
+    state.formSchema = schema;
+  } else {
+    // Reconcile saved schema with current visible cols
+    schema = await reconcileSchema(saved, visibleCols, state.colsMeta);
+    state.formSchema = schema;
+  }
+
+  await initViewer(schema);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grist integration
+// ─────────────────────────────────────────────────────────────────────────────
+grist.ready({
+  requiredAccess: 'full',
+  columns: [
+    {
+      name: 'Colonnes',
+      allowMultiple: true,
+      optional: true,
+      description: 'Colonnes à afficher dans le formulaire',
+    }
+  ],
+  onEditOptions() {
+    enterConfigMode();
+  },
+});
+
+async function enterConfigMode() {
+  const schema = state.formSchema
+    ?? await generateSchema(state.visibleCols, state.colsMeta);
+  await initEditor(schema);
+}
+
+// ── Single onRecords handler ─────────────────────────────────────────────────
+// Handles: table detection, visible columns extraction, form sync
+grist.onRecords(async (records, mappings) => {
+
+  // 1. Detect current table name
+  if (mappings?.tableId) {
+    state.currentTable = mappings.tableId;
+  } else if (!state.currentTable && records?.length > 0) {
+    try {
+      const tables = await grist.docApi.fetchTable('_grist_Tables');
+      const cols   = await grist.docApi.fetchTable('_grist_Tables_column');
+      const sampleKeys = Object.keys(records[0]).filter(k => k !== 'id');
+      for (let t = 0; t < tables.tableId.length; t++) {
+        const tRef  = tables.id[t];
+        const tCols = cols.colId.filter((_, i) => cols.parentId[i] === tRef);
+        if (sampleKeys.every(k => tCols.includes(k))) {
+          state.currentTable = tables.tableId[t];
+          break;
+        }
+      }
+    } catch(e) { /* ignore — table will be resolved later */ }
+  }
+
+  // 2. Don't interrupt config mode
+  if (state.mode === 'config') return;
+
+  // 3. Extract visible columns from mappings
+  let cols = [];
+  if (mappings?.Colonnes) {
+    cols = Array.isArray(mappings.Colonnes) ? mappings.Colonnes : [mappings.Colonnes];
+  } else if (records?.length > 0) {
+    cols = Object.keys(records[0]).filter(k => k !== 'id');
+  }
+
+  await syncForm(cols);
+});
+
+// ── onOptions: restore saved schema (called on load + after Enregistrer/Annuler)
+grist.onOptions((options) => {
+  const saved = options?.formSchema ?? null;
+  state.formSchema = saved;
+
+  if (state.mode === 'config') return;
+
+  // Re-render with restored schema if columns already known
+  if (state.visibleCols.length > 0) {
+    const base = saved ?? null;
+    const rebuild = base
+      ? reconcileSchema(base, state.visibleCols, state.colsMeta)
+      : generateSchema(state.visibleCols, state.colsMeta);
+
+    rebuild.then(schema => {
+      state.formSchema = schema;
+      initViewer(schema);
+    });
+  }
+});
+</script>
+</body>
+</html>
