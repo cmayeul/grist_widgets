@@ -6,7 +6,7 @@
   <title>SurveyJS Widget – Grist</title>
 
   <!-- SurveyJS -->
-  <link href="https://unpkg.com/survey-core/survey-core.min.css" rel="stylesheet">
+  <link  href="https://unpkg.com/survey-core/survey-core.min.css" rel="stylesheet">
   <script src="https://unpkg.com/survey-core/survey.core.min.js"></script>
   <script src="https://unpkg.com/survey-js-ui/survey-js-ui.min.js"></script>
 
@@ -14,105 +14,121 @@
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
 
   <style>
-/* ════════════════════════════════
-   DESIGN TOKENS
-════════════════════════════════ */
+/* ═══════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════ */
 :root {
   --bg:        #f5f7fb;
   --surface:   #ffffff;
   --border:    #dde3f0;
   --primary:   #3b6fd4;
   --primary-h: #2a55b0;
+  --success:   #16a34a;
   --text:      #1e2a3b;
   --muted:     #6b7a99;
-  --radius:    10px;
   --font:      'Segoe UI', system-ui, sans-serif;
-  --mono:      'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  --mono:      'Cascadia Code','Fira Mono','Consolas',monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; font-family: var(--font); background: var(--bg); color: var(--text); overflow: hidden; }
-
-/* ════════════════════════════════
-   LAYOUT SHELLS
-════════════════════════════════ */
-/* survey view fills viewport */
-#survey-view {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column;
-  overflow: hidden;
+html, body {
+  height: 100%; font-family: var(--font);
+  background: var(--bg); color: var(--text); overflow: hidden;
 }
+
+/* ═══════════════════════════════════════
+   SHELLS  (survey-view / config-panel fill the viewport)
+═══════════════════════════════════════ */
+#survey-view, #config-panel {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#config-panel { display: none; background: var(--surface); }
+
+/* ═══════════════════════════════════════
+   SURVEY CONTAINER
+═══════════════════════════════════════ */
 #survey-container { flex: 1; overflow-y: auto; }
 
-/* config panel fills viewport */
-#config-panel {
-  position: absolute; inset: 0;
-  display: none; flex-direction: column;
-  background: var(--surface);
-  overflow: hidden;
-}
-
-/* ════════════════════════════════
-   EMPTY / SUCCESS STATES
-════════════════════════════════ */
+/* ═══════════════════════════════════════
+   EMPTY STATE
+═══════════════════════════════════════ */
 .empty-state {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  height: 100%; gap: 10px; color: var(--muted); text-align: center; padding: 32px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 100%; gap: 10px;
+  color: var(--muted); text-align: center; padding: 32px;
 }
 .empty-state .es-icon { font-size: 40px; }
 .empty-state h2 { font-size: 16px; color: var(--text); }
 .empty-state p  { font-size: 13px; line-height: 1.6; max-width: 340px; }
 
+/* ═══════════════════════════════════════
+   SUCCESS OVERLAY
+═══════════════════════════════════════ */
 #success-screen {
-  position: absolute; inset: 0;
-  display: none; flex-direction: column; align-items: center; justify-content: center;
-  gap: 12px; text-align: center; padding: 32px;
+  position: absolute; inset: 0; z-index: 20;
+  display: none; flex-direction: column; align-items: center;
+  justify-content: center; gap: 12px; text-align: center; padding: 32px;
   background: var(--bg);
-  z-index: 10;
 }
 .success-check {
   width: 64px; height: 64px; border-radius: 50%; background: #dcfce7;
   display: flex; align-items: center; justify-content: center; font-size: 32px;
   animation: pop .4s cubic-bezier(.36,.07,.19,.97) both;
 }
-@keyframes pop { 0%{ transform:scale(0) } 70%{ transform:scale(1.15) } 100%{ transform:scale(1) } }
+@keyframes pop { 0%{transform:scale(0)} 70%{transform:scale(1.15)} 100%{transform:scale(1)} }
 #success-screen h2 { font-size: 20px; color: var(--text); }
 #success-screen p  { font-size: 13px; color: var(--muted); }
+
+/* ═══════════════════════════════════════
+   BUTTONS
+═══════════════════════════════════════ */
 .btn-primary {
   padding: 9px 22px; background: var(--primary); color: #fff; border: none;
-  border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .2s;
+  border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background .2s; display: inline-flex; align-items: center; gap: 6px;
 }
-.btn-primary:hover { background: var(--primary-h); }
+.btn-primary:hover    { background: var(--primary-h); }
 .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
-
-/* ════════════════════════════════
-   CONFIG PANEL LAYOUT
-════════════════════════════════ */
-.cfg-header {
-  padding: 14px 18px 12px;
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: baseline; gap: 8px;
+.btn-secondary {
+  padding: 9px 18px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 7px; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: background .15s;
 }
-.cfg-header h1 { font-size: 15px; font-weight: 700; color: var(--text); }
-.cfg-header .sub { font-size: 11px; color: var(--muted); }
+.btn-secondary:hover { background: var(--bg); }
+.btn-green {
+  padding: 9px 18px; background: #16a34a; color: #fff; border: none;
+  border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background .2s; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-green:hover    { background: #15803d; }
+.btn-green:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ═══════════════════════════════════════
+   CONFIG PANEL
+═══════════════════════════════════════ */
+.cfg-header {
+  padding: 14px 18px 12px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 8px; flex-shrink: 0;
+}
+.cfg-header h1  { font-size: 15px; font-weight: 700; color: var(--text); }
+.cfg-header .sub{ font-size: 11px; color: var(--muted); }
 
 .cfg-body {
   flex: 1; overflow-y: auto; padding: 18px;
   display: flex; flex-direction: column; gap: 20px;
 }
-
-.cfg-section > label {
+.cfg-section > .section-label {
   display: block; font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px;
 }
 
 /* ── theme grid ── */
 .theme-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: 8px;
 }
 .theme-card {
   border: 2px solid var(--border); border-radius: 8px; padding: 10px 12px;
-  cursor: pointer; background: #fafbfd;
-  transition: border-color .15s, background .15s;
+  cursor: pointer; background: #fafbfd; transition: border-color .15s, background .15s;
 }
 .theme-card:hover  { border-color: var(--primary); background: #f0f4ff; }
 .theme-card.active { border-color: var(--primary); background: #eef3ff; }
@@ -127,7 +143,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 }
 .json-toolbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 10px; background: #252b3b; border-bottom: 1px solid #353d52;
+  padding: 6px 10px; background: #252b3b; border-bottom: 1px solid #353d52; flex-shrink:0;
 }
 .json-toolbar-label { font-size: 11px; color: #7a8aaa; font-family: var(--mono); }
 .btn-group { display: flex; gap: 6px; }
@@ -140,7 +156,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .btn-icon:hover { background: #353d52; color: #e0e8ff; }
 
 #json-editor {
-  width: 100%; min-height: 260px; max-height: 360px;
+  width: 100%; min-height: 260px; max-height: 400px;
   padding: 14px; font-family: var(--mono); font-size: 12px; line-height: 1.6;
   color: #c8d5f0; background: transparent; border: none; outline: none;
   resize: vertical; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto;
@@ -148,28 +164,37 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 #json-editor::placeholder { color: #455069; }
 
 #json-status {
-  font-size: 11px; padding: 5px 12px;
-  background: #1e2536; color: #5a7ab0; min-height: 26px; transition: color .2s;
-  font-family: var(--mono);
+  font-size: 11px; padding: 5px 12px; flex-shrink: 0;
+  background: #1e2536; color: #5a7ab0; min-height: 26px;
+  font-family: var(--mono); transition: color .2s;
 }
 #json-status.valid   { color: #4ade80; }
 #json-status.invalid { color: #f87171; }
 
+/* ── create-columns button area ── */
+.col-create-area {
+  background: #f0f6ff; border: 1px solid #c7d9f8;
+  border-radius: 8px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.col-create-area p {
+  font-size: 12px; color: var(--muted); line-height: 1.5;
+}
+#col-create-result {
+  font-size: 12px; color: var(--success); min-height: 18px; font-weight: 600;
+}
+#col-create-result.err { color: #dc2626; }
+
 /* ── footer ── */
 .cfg-footer {
   padding: 12px 18px; border-top: 1px solid var(--border);
-  display: flex; justify-content: flex-end; gap: 10px; background: var(--surface);
+  display: flex; justify-content: flex-end; gap: 10px;
+  background: var(--surface); flex-shrink: 0;
 }
-.btn-secondary {
-  padding: 9px 18px; border: 1px solid var(--border); background: var(--surface);
-  color: var(--text); border-radius: 7px; font-size: 13px; font-weight: 600;
-  cursor: pointer; transition: background .15s;
-}
-.btn-secondary:hover { background: var(--bg); }
 
-/* ════════════════════════════════
+/* ═══════════════════════════════════════
    TOAST
-════════════════════════════════ */
+═══════════════════════════════════════ */
 #toast {
   position: fixed; bottom: 16px; left: 50%;
   transform: translateX(-50%) translateY(60px);
@@ -180,28 +205,28 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 }
 #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 
-/* ════════════════════════════════
-   SURVEYJS fit
-════════════════════════════════ */
-.sd-root-modern { background: transparent !important; }
+/* ═══════════════════════════════════════
+   SURVEYJS fit inside container
+═══════════════════════════════════════ */
+.sd-root-modern      { background: transparent !important; }
 .sd-container-modern { max-width: 100% !important; }
   </style>
 </head>
 <body>
 
-<!-- ══════════ SURVEY VIEW ══════════ -->
+<!-- ═══════════ SURVEY VIEW ═══════════ -->
 <div id="survey-view">
   <div id="survey-container">
-    <div class="empty-state" id="empty-state">
+    <div class="empty-state">
       <span class="es-icon">📋</span>
       <h2>Aucun formulaire configuré</h2>
-      <p>Ouvrez la configuration via le menu ⋮ de la section Grist<br>
-         (<em>Ouvrir la configuration</em>) pour coller votre JSON SurveyJS.</p>
+      <p>Menu ⋮ de la section → <em>Ouvrir la configuration</em><br>
+         pour coller votre JSON SurveyJS.</p>
     </div>
   </div>
 </div>
 
-<!-- ══════════ SUCCESS OVERLAY ══════════ -->
+<!-- ═══════════ SUCCESS OVERLAY ═══════════ -->
 <div id="success-screen">
   <div class="success-check">✓</div>
   <h2>Réponse enregistrée !</h2>
@@ -209,7 +234,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   <button class="btn-primary" id="btn-new-response">+ Nouvelle réponse</button>
 </div>
 
-<!-- ══════════ CONFIG PANEL ══════════ -->
+<!-- ═══════════ CONFIG PANEL ═══════════ -->
 <div id="config-panel">
 
   <div class="cfg-header">
@@ -219,16 +244,16 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 
   <div class="cfg-body">
 
-    <!-- Theme -->
+    <!-- Thème -->
     <div class="cfg-section">
-      <label>Thème SurveyJS</label>
+      <span class="section-label">Thème SurveyJS</span>
       <div class="theme-grid" id="theme-grid"></div>
     </div>
 
-    <!-- JSON editor -->
-    <div class="cfg-section" style="flex:1;display:flex;flex-direction:column;">
-      <label>JSON du formulaire</label>
-      <div class="json-wrap" style="flex:1;">
+    <!-- JSON -->
+    <div class="cfg-section">
+      <span class="section-label">JSON du formulaire</span>
+      <div class="json-wrap">
         <div class="json-toolbar">
           <span class="json-toolbar-label">survey.json</span>
           <div class="btn-group">
@@ -236,9 +261,25 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
             <button class="btn-icon" id="btn-clear">✕ Vider</button>
           </div>
         </div>
-        <textarea id="json-editor" spellcheck="false"
-          placeholder='{\n  "title": "Mon formulaire",\n  "elements": []\n}'></textarea>
+        <textarea id="json-editor" spellcheck="false" placeholder='{ "title": "Mon formulaire", "elements": [] }'></textarea>
         <div id="json-status">En attente de saisie…</div>
+      </div>
+    </div>
+
+    <!-- Créer colonnes -->
+    <div class="cfg-section">
+      <span class="section-label">Table cible — colonnes</span>
+      <div class="col-create-area">
+        <p>
+          Crée automatiquement dans la table liée toutes les colonnes
+          correspondant aux questions du formulaire (si elles n'existent pas encore).
+        </p>
+        <div>
+          <button class="btn-green" id="btn-create-cols" disabled>
+            ＋ Créer les colonnes manquantes
+          </button>
+        </div>
+        <div id="col-create-result"></div>
       </div>
     </div>
 
@@ -251,68 +292,90 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 
 </div><!-- /config-panel -->
 
-<!-- TOAST -->
 <div id="toast" role="alert"></div>
 
-<!-- ══════════════════════════════════════════════════
+<!-- ══════════════════════════════════════════
      SCRIPT
-══════════════════════════════════════════════════ -->
+══════════════════════════════════════════ -->
 <script>
 'use strict';
 
-/* ───────────────────────────────────────
-   THEME CATALOGUE
-─────────────────────────────────────── */
+/* ─────────────────────────────────────────
+   THEMES
+───────────────────────────────────────── */
 const THEMES = [
-  { id: 'default',          label: 'Default',       desc: 'Standard',         swatch: 'linear-gradient(90deg,#19b394,#1ca8b5)' },
-  { id: 'sharp',            label: 'Sharp',          desc: 'Angles nets',      swatch: 'linear-gradient(90deg,#1ab394,#3d9c96)' },
-  { id: 'borderless',       label: 'Borderless',     desc: 'Sans bordures',    swatch: 'linear-gradient(90deg,#19b394,#a5d6d3)' },
-  { id: 'flat',             label: 'Flat',           desc: 'Aplats',           swatch: 'linear-gradient(90deg,#19b394,#70b8b4)' },
-  { id: 'doubleborder',     label: 'Double Border',  desc: 'Double contour',   swatch: 'linear-gradient(90deg,#19b394,#0d6f60)' },
-  { id: 'layered',          label: 'Layered',        desc: 'En couches',       swatch: 'linear-gradient(90deg,#2e4de0,#7b93f8)' },
-  { id: 'solid',            label: 'Solid',          desc: 'Plein',            swatch: 'linear-gradient(90deg,#3d4fb5,#5d6cc8)' },
-  { id: 'threedimensional', label: '3D',             desc: 'Relief',           swatch: 'linear-gradient(90deg,#555,#888)' },
-  { id: 'contrast',         label: 'Contrast',       desc: 'Haut contraste',   swatch: 'linear-gradient(90deg,#111,#444)' },
+  { id:'default',          label:'Default',      desc:'Standard',       swatch:'linear-gradient(90deg,#19b394,#1ca8b5)' },
+  { id:'sharp',            label:'Sharp',         desc:'Angles nets',    swatch:'linear-gradient(90deg,#1ab394,#3d9c96)' },
+  { id:'borderless',       label:'Borderless',    desc:'Sans bordures',  swatch:'linear-gradient(90deg,#19b394,#a5d6d3)' },
+  { id:'flat',             label:'Flat',          desc:'Aplats',         swatch:'linear-gradient(90deg,#19b394,#70b8b4)' },
+  { id:'doubleborder',     label:'Double Border', desc:'Double contour', swatch:'linear-gradient(90deg,#19b394,#0d6f60)' },
+  { id:'layered',          label:'Layered',       desc:'En couches',     swatch:'linear-gradient(90deg,#2e4de0,#7b93f8)' },
+  { id:'solid',            label:'Solid',         desc:'Plein',          swatch:'linear-gradient(90deg,#3d4fb5,#5d6cc8)' },
+  { id:'threedimensional', label:'3D',            desc:'Relief',         swatch:'linear-gradient(90deg,#555,#888)' },
+  { id:'contrast',         label:'Contrast',      desc:'Haut contraste', swatch:'linear-gradient(90deg,#111,#444)' },
 ];
 
-/* ───────────────────────────────────────
-   STATE
-─────────────────────────────────────── */
-const $ = id => document.getElementById(id);
-let surveyInstance = null;
-let currentOptions = { theme: 'default', formJson: '' };
-let isConfigOpen   = false;
-let linkedTableId  = null;   // resolved via grist.selectedTable.getTableId()
+/* SurveyJS question type → Grist column type */
+const SURVEY_TO_GRIST_TYPE = {
+  text:            'Text',
+  comment:         'Text',
+  html:            'Text',
+  expression:      'Text',
+  dropdown:        'Choice',
+  tagbox:          'ChoiceList',
+  checkbox:        'Text',      // serialized JSON array
+  radiogroup:      'Choice',
+  imagepicker:     'Text',
+  boolean:         'Bool',
+  rating:          'Numeric',
+  ranking:         'Text',
+  matrix:          'Text',
+  matrixdropdown:  'Text',
+  matrixdynamic:   'Text',
+  paneldynamic:    'Text',
+  multipletext:    'Text',
+  file:            'Text',
+  signaturepad:    'Text',
+  'custom':        'Text',
+};
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
+   STATE
+───────────────────────────────────────── */
+const $       = id => document.getElementById(id);
+let survey    = null;          // current SurveyJS Model instance
+let opts      = { theme: 'default', formJson: '' };   // saved widget options
+let inConfig  = false;         // true while config panel is open
+let tableId   = null;          // Grist table ID resolved from selectedTable
+
+/* ─────────────────────────────────────────
    TOAST
-─────────────────────────────────────── */
-function toast(msg, ms = 3500) {
+───────────────────────────────────────── */
+function toast(msg, ms = 4000) {
   const el = $('toast');
   el.textContent = msg;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), ms);
 }
 
-/* ───────────────────────────────────────
-   VIEW SWITCHING
-─────────────────────────────────────── */
-function openSurveyView() {
+/* ─────────────────────────────────────────
+   VIEW HELPERS
+───────────────────────────────────────── */
+function showSurveyView() {
   $('config-panel').style.display = 'none';
   $('survey-view').style.display  = 'flex';
-  isConfigOpen = false;
+  inConfig = false;
 }
-
-function openConfigPanel() {
+function showConfigPanel() {
   $('survey-view').style.display  = 'none';
   $('config-panel').style.display = 'flex';
-  isConfigOpen = true;
-  loadOptionsIntoEditor(currentOptions);
+  inConfig = true;
+  populateEditor(opts);
 }
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
    THEME GRID
-─────────────────────────────────────── */
+───────────────────────────────────────── */
 function buildThemeGrid(selected) {
   const grid = $('theme-grid');
   grid.innerHTML = '';
@@ -331,41 +394,47 @@ function buildThemeGrid(selected) {
     grid.appendChild(card);
   });
 }
-
-function selectedTheme() {
+function getSelectedTheme() {
   const a = $('theme-grid').querySelector('.theme-card.active');
   return a ? a.dataset.id : 'default';
 }
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
    JSON EDITOR
-─────────────────────────────────────── */
+───────────────────────────────────────── */
 const editor   = $('json-editor');
 const statusEl = $('json-status');
 const saveBtn  = $('btn-save');
+const ccBtn    = $('btn-create-cols');
 
 function validateJson(raw) {
   if (!raw.trim()) {
     statusEl.textContent = 'En attente de saisie…';
     statusEl.className   = '';
-    saveBtn.disabled     = true;
-    return false;
+    saveBtn.disabled = true;
+    ccBtn.disabled   = true;
+    return null;
   }
   try {
-    JSON.parse(raw);
+    const parsed = JSON.parse(raw);
     statusEl.textContent = '✓ JSON valide';
     statusEl.className   = 'valid';
-    saveBtn.disabled     = false;
-    return true;
+    saveBtn.disabled = false;
+    ccBtn.disabled   = false;
+    return parsed;
   } catch(e) {
     statusEl.textContent = '✗ ' + e.message;
     statusEl.className   = 'invalid';
-    saveBtn.disabled     = true;
-    return false;
+    saveBtn.disabled = true;
+    ccBtn.disabled   = true;
+    return null;
   }
 }
 
-editor.addEventListener('input', () => validateJson(editor.value));
+editor.addEventListener('input', () => {
+  validateJson(editor.value);
+  $('col-create-result').textContent = '';
+});
 
 $('btn-format').addEventListener('click', () => {
   try {
@@ -373,61 +442,145 @@ $('btn-format').addEventListener('click', () => {
     validateJson(editor.value);
   } catch { toast('JSON invalide, impossible de formater.'); }
 });
-
-$('btn-clear').addEventListener('click', () => { editor.value = ''; validateJson(''); });
-
-// Tab → 2 spaces inside textarea
+$('btn-clear').addEventListener('click', () => {
+  editor.value = '';
+  validateJson('');
+  $('col-create-result').textContent = '';
+});
 editor.addEventListener('keydown', e => {
   if (e.key !== 'Tab') return;
   e.preventDefault();
   const s = editor.selectionStart;
-  editor.value = editor.value.slice(0, s) + '  ' + editor.value.slice(editor.selectionEnd);
+  editor.value = editor.value.slice(0,s) + '  ' + editor.value.slice(editor.selectionEnd);
   editor.selectionStart = editor.selectionEnd = s + 2;
 });
 
-function loadOptionsIntoEditor(opts) {
-  buildThemeGrid(opts.theme || 'default');
+function populateEditor(o) {
+  buildThemeGrid(o.theme || 'default');
   try {
-    editor.value = opts.formJson
-      ? JSON.stringify(JSON.parse(opts.formJson), null, 2)
-      : '';
-  } catch { editor.value = opts.formJson || ''; }
+    editor.value = o.formJson ? JSON.stringify(JSON.parse(o.formJson), null, 2) : '';
+  } catch { editor.value = o.formJson || ''; }
   validateJson(editor.value);
+  $('col-create-result').textContent = '';
 }
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
+   EXTRACT QUESTIONS from SurveyJS JSON
+   Returns array of { name, type }
+───────────────────────────────────────── */
+function extractQuestions(surveyJson) {
+  const questions = [];
+  const seen = new Set();
+
+  function walkElements(elements) {
+    if (!Array.isArray(elements)) return;
+    elements.forEach(el => {
+      if (el.type === 'panel' || el.type === 'paneldynamic') {
+        walkElements(el.elements || el.templateElements);
+        if (el.type === 'paneldynamic' && el.name) addQ(el.name, 'paneldynamic');
+      } else if (el.name) {
+        addQ(el.name, el.type || 'text');
+        // matrix rows are stored as one column (the whole matrix JSON)
+      }
+    });
+  }
+  function addQ(name, type) {
+    if (seen.has(name)) return;
+    seen.add(name);
+    questions.push({ name, type: (type || 'text').toLowerCase() });
+  }
+
+  (surveyJson.pages || [{ elements: surveyJson.elements || [] }]).forEach(p => {
+    walkElements(p.elements || []);
+  });
+  return questions;
+}
+
+/* ─────────────────────────────────────────
+   CREATE MISSING COLUMNS in linked table
+───────────────────────────────────────── */
+$('btn-create-cols').addEventListener('click', async () => {
+  const parsed = validateJson(editor.value);
+  if (!parsed) return;
+
+  const resultEl = $('col-create-result');
+  resultEl.textContent = '⏳ Analyse en cours…';
+  resultEl.className   = '';
+
+  // Resolve table ID
+  if (!tableId) {
+    try { tableId = await grist.selectedTable.getTableId(); } catch(e) {}
+  }
+  if (!tableId) {
+    resultEl.textContent = '⚠️ Aucune table liée détectée.';
+    resultEl.className   = 'err';
+    return;
+  }
+
+  // Fetch existing columns
+  let existingCols = new Set();
+  try {
+    const tableData = await grist.docApi.fetchTable(tableId);
+    existingCols = new Set(Object.keys(tableData));
+  } catch(e) {
+    resultEl.textContent = '⚠️ Impossible de lire la table : ' + (e.message || e);
+    resultEl.className   = 'err';
+    return;
+  }
+
+  const questions = extractQuestions(parsed);
+  const toCreate  = questions.filter(q => !existingCols.has(q.name));
+
+  if (toCreate.length === 0) {
+    resultEl.textContent = '✓ Toutes les colonnes existent déjà.';
+    resultEl.className   = '';
+    return;
+  }
+
+  // Build AddColumn actions
+  const actions = toCreate.map(q => {
+    const gristType = SURVEY_TO_GRIST_TYPE[q.type] || 'Text';
+    return ['AddColumn', tableId, q.name, { type: gristType }];
+  });
+
+  try {
+    await grist.docApi.applyUserActions(actions);
+    resultEl.textContent = `✓ ${toCreate.length} colonne(s) créée(s) : ${toCreate.map(q=>q.name).join(', ')}`;
+    resultEl.className   = '';
+  } catch(e) {
+    resultEl.textContent = '❌ Erreur : ' + (e.message || e);
+    resultEl.className   = 'err';
+  }
+});
+
+/* ─────────────────────────────────────────
    SAVE CONFIG
-─────────────────────────────────────── */
+───────────────────────────────────────── */
 $('btn-save').addEventListener('click', async () => {
   if (!validateJson(editor.value)) return;
-  const newOpts = { theme: selectedTheme(), formJson: editor.value.trim() };
+  const newOpts = { theme: getSelectedTheme(), formJson: editor.value.trim() };
   try {
     await grist.setOptions(newOpts);
-    currentOptions = newOpts;
-    openSurveyView();
-    buildSurvey(newOpts.formJson, newOpts.theme);
-    toast('✓ Configuration enregistrée');
+    // NOTE: setOptions triggers onOptions → buildSurvey is called there.
+    // We just switch view; do NOT call buildSurvey here to avoid double render.
+    opts = newOpts;
+    showSurveyView();
+    // buildSurvey called by onOptions callback below
   } catch(e) { toast('Erreur sauvegarde : ' + (e.message || e)); }
 });
 
 $('btn-cancel').addEventListener('click', () => {
-  openSurveyView();
-  // Rebuild survey with current saved options (not unsaved editor state)
-  if (currentOptions.formJson) buildSurvey(currentOptions.formJson, currentOptions.theme);
+  showSurveyView();
+  // Re-render with last saved opts in case nothing changed
+  buildSurvey(opts.formJson, opts.theme);
 });
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
    BUILD / RENDER SURVEY
-─────────────────────────────────────── */
-function applyTheme(themeId) {
-  try {
-    if (Survey && Survey.StylesManager) Survey.StylesManager.applyTheme(themeId);
-  } catch(e) {}
-}
-
-function buildSurvey(jsonDef, themeId = 'default') {
-  // Cleanup previous instance
-  if (surveyInstance) { try { surveyInstance.dispose?.(); } catch(e) {} surveyInstance = null; }
+───────────────────────────────────────── */
+function buildSurvey(jsonDef, themeId) {
+  // Destroy previous instance
+  if (survey) { try { survey.dispose?.(); } catch(e) {} survey = null; }
   const container = $('survey-container');
   container.innerHTML = '';
   $('success-screen').style.display = 'none';
@@ -437,7 +590,7 @@ function buildSurvey(jsonDef, themeId = 'default') {
       <div class="empty-state">
         <span class="es-icon">📋</span>
         <h2>Aucun formulaire configuré</h2>
-        <p>Ouvrez la configuration via le menu ⋮ → <em>Ouvrir la configuration</em>.</p>
+        <p>Menu ⋮ → <em>Ouvrir la configuration</em>.</p>
       </div>`;
     return;
   }
@@ -453,42 +606,40 @@ function buildSurvey(jsonDef, themeId = 'default') {
     return;
   }
 
-  applyTheme(themeId);
-  surveyInstance = new Survey.Model(parsed);
-  surveyInstance.locale = 'fr';
-  surveyInstance.onComplete.add(async (sender) => saveResults(sender.data));
-  surveyInstance.render(container);
+  // Apply theme (SurveyJS v1 API – safe no-op if unavailable in v2)
+  try {
+    if (typeof Survey !== 'undefined' && Survey.StylesManager &&
+        typeof Survey.StylesManager.applyTheme === 'function') {
+      Survey.StylesManager.applyTheme(themeId || 'default');
+    }
+  } catch(e) { /* ignore – theme API removed in SurveyJS v2 */ }
+
+  survey = new Survey.Model(parsed);
+  survey.locale = 'fr';
+  survey.onComplete.add(sender => saveResults(sender.data));
+  survey.render(container);
 }
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
    SAVE RESULTS → linked table
-─────────────────────────────────────── */
+───────────────────────────────────────── */
 async function saveResults(data) {
-  // Resolve the linked table ID if not yet known
-  if (!linkedTableId) {
-    try {
-      if (grist.selectedTable) {
-        linkedTableId = await grist.selectedTable.getTableId();
-      }
-    } catch(e) {}
+  if (!tableId) {
+    try { tableId = await grist.selectedTable.getTableId(); } catch(e) {}
   }
-
-  if (!linkedTableId) {
-    toast('⚠️ Impossible de détecter la table liée.\nAssurez-vous que le widget est lié à une table via "Sélectionner des données".');
-    // Rebuild so user can try again
-    buildSurvey(currentOptions.formJson, currentOptions.theme);
+  if (!tableId) {
+    toast('⚠️ Table liée non détectée.\nConfigurez "Sélectionner des données" pour ce widget.');
+    buildSurvey(opts.formJson, opts.theme);
     return;
   }
-
   try {
-    await grist.docApi.applyUserActions([
-      ['AddRecord', linkedTableId, null, flattenData(data)]
-    ]);
-    $('success-msg').textContent = `Réponse enregistrée dans « ${linkedTableId} ».`;
+    const flat = flattenData(data);
+    await grist.docApi.applyUserActions([['AddRecord', tableId, null, flat]]);
+    $('success-msg').textContent = `Réponse enregistrée dans « ${tableId} ».`;
     $('success-screen').style.display = 'flex';
   } catch(e) {
     toast('❌ Erreur enregistrement : ' + (e.message || e));
-    buildSurvey(currentOptions.formJson, currentOptions.theme);
+    buildSurvey(opts.formJson, opts.theme);
   }
 }
 
@@ -499,45 +650,42 @@ function flattenData(data) {
   return out;
 }
 
-/* ───────────────────────────────────────
-   NEW RESPONSE
-─────────────────────────────────────── */
 $('btn-new-response').addEventListener('click', () => {
   $('success-screen').style.display = 'none';
-  buildSurvey(currentOptions.formJson, currentOptions.theme);
+  buildSurvey(opts.formJson, opts.theme);
 });
 
-/* ───────────────────────────────────────
+/* ─────────────────────────────────────────
    GRIST INTEGRATION
-─────────────────────────────────────── */
+───────────────────────────────────────── */
 grist.ready({
   requiredAccess: 'full',
-  // No column mappings – JSON stored in widget options, target = linked table
-  onEditOptions() {
-    // Called when user clicks "Ouvrir la configuration" in Grist section menu
-    openConfigPanel();
-  }
+  onEditOptions() { showConfigPanel(); }
 });
 
-// Called once on load (and whenever options are saved/reverted)
-grist.onOptions(function(options /*, interaction */) {
-  if (options) {
-    currentOptions = {
-      theme:    options.theme    || 'default',
-      formJson: options.formJson || ''
-    };
+/*
+  KEY FIX:
+  grist.onOptions fires:
+    1. On initial load  → options may be null (no config yet) or the saved object
+    2. After setOptions → with the freshly saved options
+  In both cases we must render the survey (unless config panel is open).
+  We must NOT gate on `inConfig` here because setOptions triggers onOptions
+  *after* we have already called showSurveyView() in btn-save handler.
+*/
+grist.onOptions(function(options) {
+  if (options && options.formJson !== undefined) {
+    opts = { theme: options.theme || 'default', formJson: options.formJson || '' };
   }
-  if (!isConfigOpen) {
-    openSurveyView();
-    buildSurvey(currentOptions.formJson, currentOptions.theme);
-  }
+  // Always rebuild when options arrive, whether config was open or not
+  showSurveyView();
+  buildSurvey(opts.formJson, opts.theme);
 });
 
-// Grab the table ID from the widget's data source
-grist.onRecords(async function(records /*, mappings */) {
+// Capture the linked table ID as soon as Grist sends records
+grist.onRecords(async function() {
   try {
-    if (grist.selectedTable) {
-      linkedTableId = await grist.selectedTable.getTableId();
+    if (!tableId && grist.selectedTable) {
+      tableId = await grist.selectedTable.getTableId();
     }
   } catch(e) {}
 });
