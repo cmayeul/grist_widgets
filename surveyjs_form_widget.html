@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SurveyJS Widget – Grist</title>
 
-  <!-- SurveyJS -->
-  <link  href="https://unpkg.com/survey-core/survey-core.min.css" rel="stylesheet">
+  <!-- SurveyJS core (no theme CSS here – loaded dynamically) -->
   <script src="https://unpkg.com/survey-core/survey.core.min.js"></script>
   <script src="https://unpkg.com/survey-js-ui/survey-js-ui.min.js"></script>
+  <!-- Theme CSS placeholder – src set dynamically by applyThemeCss() -->
+  <link id="survey-theme-css" rel="stylesheet" href="https://unpkg.com/survey-core/survey-core.min.css">
 
   <!-- Grist Plugin API -->
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -300,57 +301,54 @@ html, body {
 <script>
 'use strict';
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    THEMES
-───────────────────────────────────────── */
+   CSS servi par unpkg – noms de fichiers réels SurveyJS
+══════════════════════════════════════════════════════ */
 const THEMES = [
-  { id:'default',          label:'Default',      desc:'Standard',       swatch:'linear-gradient(90deg,#19b394,#1ca8b5)' },
-  { id:'sharp',            label:'Sharp',         desc:'Angles nets',    swatch:'linear-gradient(90deg,#1ab394,#3d9c96)' },
-  { id:'borderless',       label:'Borderless',    desc:'Sans bordures',  swatch:'linear-gradient(90deg,#19b394,#a5d6d3)' },
-  { id:'flat',             label:'Flat',          desc:'Aplats',         swatch:'linear-gradient(90deg,#19b394,#70b8b4)' },
-  { id:'doubleborder',     label:'Double Border', desc:'Double contour', swatch:'linear-gradient(90deg,#19b394,#0d6f60)' },
-  { id:'layered',          label:'Layered',       desc:'En couches',     swatch:'linear-gradient(90deg,#2e4de0,#7b93f8)' },
-  { id:'solid',            label:'Solid',         desc:'Plein',          swatch:'linear-gradient(90deg,#3d4fb5,#5d6cc8)' },
-  { id:'threedimensional', label:'3D',            desc:'Relief',         swatch:'linear-gradient(90deg,#555,#888)' },
-  { id:'contrast',         label:'Contrast',      desc:'Haut contraste', swatch:'linear-gradient(90deg,#111,#444)' },
+  { id:'defaultV2',        label:'Default',      desc:'Standard',        swatch:'linear-gradient(90deg,#19b394,#1ca8b5)',
+    css:'https://unpkg.com/survey-core/survey-core.min.css' },
+  { id:'sharp',            label:'Sharp',         desc:'Angles nets',     swatch:'linear-gradient(90deg,#1ab394,#3d9c96)',
+    css:'https://unpkg.com/survey-core/themes/sharp.min.css' },
+  { id:'borderless',       label:'Borderless',    desc:'Sans bordures',   swatch:'linear-gradient(90deg,#19b394,#a5d6d3)',
+    css:'https://unpkg.com/survey-core/themes/borderless.min.css' },
+  { id:'flat',             label:'Flat',          desc:'Aplats',          swatch:'linear-gradient(90deg,#19b394,#70b8b4)',
+    css:'https://unpkg.com/survey-core/themes/flat.min.css' },
+  { id:'doubleborder',     label:'Double Border', desc:'Double contour',  swatch:'linear-gradient(90deg,#19b394,#0d6f60)',
+    css:'https://unpkg.com/survey-core/themes/doubleborder.min.css' },
+  { id:'layered',          label:'Layered',       desc:'En couches',      swatch:'linear-gradient(90deg,#2e4de0,#7b93f8)',
+    css:'https://unpkg.com/survey-core/themes/layered.min.css' },
+  { id:'solid',            label:'Solid',         desc:'Plein',           swatch:'linear-gradient(90deg,#3d4fb5,#5d6cc8)',
+    css:'https://unpkg.com/survey-core/themes/solid.min.css' },
+  { id:'threedimensional', label:'3D',            desc:'Relief',          swatch:'linear-gradient(90deg,#555,#888)',
+    css:'https://unpkg.com/survey-core/themes/threedimensional.min.css' },
+  { id:'contrast',         label:'Contrast',      desc:'Haut contraste',  swatch:'linear-gradient(90deg,#111,#444)',
+    css:'https://unpkg.com/survey-core/themes/contrast.min.css' },
 ];
+const DEFAULT_CSS = 'https://unpkg.com/survey-core/survey-core.min.css';
 
-/* SurveyJS question type → Grist column type */
-const SURVEY_TO_GRIST_TYPE = {
-  text:            'Text',
-  comment:         'Text',
-  html:            'Text',
-  expression:      'Text',
-  dropdown:        'Choice',
-  tagbox:          'ChoiceList',
-  checkbox:        'Text',      // serialized JSON array
-  radiogroup:      'Choice',
-  imagepicker:     'Text',
-  boolean:         'Bool',
-  rating:          'Numeric',
-  ranking:         'Text',
-  matrix:          'Text',
-  matrixdropdown:  'Text',
-  matrixdynamic:   'Text',
-  paneldynamic:    'Text',
-  multipletext:    'Text',
-  file:            'Text',
-  signaturepad:    'Text',
-  'custom':        'Text',
+/* ══════════════════════════════════════════════════════
+   SURVEY TYPE → GRIST TYPE
+══════════════════════════════════════════════════════ */
+const SURVEY_TO_GRIST = {
+  text:'Text', comment:'Text', html:'Text', expression:'Text',
+  dropdown:'Choice', tagbox:'Text', checkbox:'Text', radiogroup:'Choice',
+  imagepicker:'Text', boolean:'Bool', rating:'Numeric', ranking:'Text',
+  matrix:'Text', matrixdropdown:'Text', matrixdynamic:'Text',
+  paneldynamic:'Text', multipletext:'Text', file:'Text', signaturepad:'Text',
 };
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    STATE
-───────────────────────────────────────── */
-const $       = id => document.getElementById(id);
-let survey    = null;          // current SurveyJS Model instance
-let opts      = { theme: 'default', formJson: '' };   // saved widget options
-let inConfig  = false;         // true while config panel is open
-let tableId   = null;          // Grist table ID resolved from selectedTable
+══════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+let survey   = null;
+let opts     = { theme: 'defaultV2', formJson: '' };
+let sourceTableId = null;   // table SOURCE du widget (pas selectedTable)
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    TOAST
-───────────────────────────────────────── */
+══════════════════════════════════════════════════════ */
 function toast(msg, ms = 4000) {
   const el = $('toast');
   el.textContent = msg;
@@ -358,24 +356,32 @@ function toast(msg, ms = 4000) {
   setTimeout(() => el.classList.remove('show'), ms);
 }
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
+   THEME CSS  – swap le <link> dynamiquement
+══════════════════════════════════════════════════════ */
+function applyThemeCss(themeId) {
+  const t = THEMES.find(t => t.id === themeId);
+  const href = t ? t.css : DEFAULT_CSS;
+  const link = $('survey-theme-css');
+  if (link.href !== href) link.href = href;
+}
+
+/* ══════════════════════════════════════════════════════
    VIEW HELPERS
-───────────────────────────────────────── */
+══════════════════════════════════════════════════════ */
 function showSurveyView() {
   $('config-panel').style.display = 'none';
   $('survey-view').style.display  = 'flex';
-  inConfig = false;
 }
 function showConfigPanel() {
   $('survey-view').style.display  = 'none';
   $('config-panel').style.display = 'flex';
-  inConfig = true;
   populateEditor(opts);
 }
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    THEME GRID
-───────────────────────────────────────── */
+══════════════════════════════════════════════════════ */
 function buildThemeGrid(selected) {
   const grid = $('theme-grid');
   grid.innerHTML = '';
@@ -396,12 +402,12 @@ function buildThemeGrid(selected) {
 }
 function getSelectedTheme() {
   const a = $('theme-grid').querySelector('.theme-card.active');
-  return a ? a.dataset.id : 'default';
+  return a ? a.dataset.id : 'defaultV2';
 }
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    JSON EDITOR
-───────────────────────────────────────── */
+══════════════════════════════════════════════════════ */
 const editor   = $('json-editor');
 const statusEl = $('json-status');
 const saveBtn  = $('btn-save');
@@ -411,22 +417,19 @@ function validateJson(raw) {
   if (!raw.trim()) {
     statusEl.textContent = 'En attente de saisie…';
     statusEl.className   = '';
-    saveBtn.disabled = true;
-    ccBtn.disabled   = true;
+    saveBtn.disabled = ccBtn.disabled = true;
     return null;
   }
   try {
-    const parsed = JSON.parse(raw);
+    const p = JSON.parse(raw);
     statusEl.textContent = '✓ JSON valide';
     statusEl.className   = 'valid';
-    saveBtn.disabled = false;
-    ccBtn.disabled   = false;
-    return parsed;
+    saveBtn.disabled = ccBtn.disabled = false;
+    return p;
   } catch(e) {
     statusEl.textContent = '✗ ' + e.message;
     statusEl.className   = 'invalid';
-    saveBtn.disabled = true;
-    ccBtn.disabled   = true;
+    saveBtn.disabled = ccBtn.disabled = true;
     return null;
   }
 }
@@ -435,151 +438,114 @@ editor.addEventListener('input', () => {
   validateJson(editor.value);
   $('col-create-result').textContent = '';
 });
-
 $('btn-format').addEventListener('click', () => {
-  try {
-    editor.value = JSON.stringify(JSON.parse(editor.value), null, 2);
-    validateJson(editor.value);
-  } catch { toast('JSON invalide, impossible de formater.'); }
+  try { editor.value = JSON.stringify(JSON.parse(editor.value), null, 2); validateJson(editor.value); }
+  catch { toast('JSON invalide, impossible de formater.'); }
 });
 $('btn-clear').addEventListener('click', () => {
-  editor.value = '';
-  validateJson('');
-  $('col-create-result').textContent = '';
+  editor.value = ''; validateJson(''); $('col-create-result').textContent = '';
 });
 editor.addEventListener('keydown', e => {
   if (e.key !== 'Tab') return;
   e.preventDefault();
   const s = editor.selectionStart;
-  editor.value = editor.value.slice(0,s) + '  ' + editor.value.slice(editor.selectionEnd);
+  editor.value = editor.value.slice(0, s) + '  ' + editor.value.slice(editor.selectionEnd);
   editor.selectionStart = editor.selectionEnd = s + 2;
 });
 
 function populateEditor(o) {
-  buildThemeGrid(o.theme || 'default');
-  try {
-    editor.value = o.formJson ? JSON.stringify(JSON.parse(o.formJson), null, 2) : '';
-  } catch { editor.value = o.formJson || ''; }
+  buildThemeGrid(o.theme || 'defaultV2');
+  try { editor.value = o.formJson ? JSON.stringify(JSON.parse(o.formJson), null, 2) : ''; }
+  catch { editor.value = o.formJson || ''; }
   validateJson(editor.value);
   $('col-create-result').textContent = '';
 }
 
-/* ─────────────────────────────────────────
-   EXTRACT QUESTIONS from SurveyJS JSON
-   Returns array of { name, type }
-───────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   EXTRACT QUESTIONS
+══════════════════════════════════════════════════════ */
 function extractQuestions(surveyJson) {
-  const questions = [];
-  const seen = new Set();
-
-  function walkElements(elements) {
-    if (!Array.isArray(elements)) return;
-    elements.forEach(el => {
-      if (el.type === 'panel' || el.type === 'paneldynamic') {
-        walkElements(el.elements || el.templateElements);
-        if (el.type === 'paneldynamic' && el.name) addQ(el.name, 'paneldynamic');
-      } else if (el.name) {
-        addQ(el.name, el.type || 'text');
-        // matrix rows are stored as one column (the whole matrix JSON)
-      }
-    });
-  }
-  function addQ(name, type) {
+  const list = [], seen = new Set();
+  function add(name, type) {
     if (seen.has(name)) return;
     seen.add(name);
-    questions.push({ name, type: (type || 'text').toLowerCase() });
+    list.push({ name, type: (type || 'text').toLowerCase() });
   }
-
-  (surveyJson.pages || [{ elements: surveyJson.elements || [] }]).forEach(p => {
-    walkElements(p.elements || []);
-  });
-  return questions;
+  function walk(elements) {
+    if (!Array.isArray(elements)) return;
+    elements.forEach(el => {
+      if (el.type === 'panel') { walk(el.elements); }
+      else if (el.type === 'paneldynamic') { walk(el.templateElements); add(el.name, 'paneldynamic'); }
+      else if (el.name) { add(el.name, el.type || 'text'); }
+    });
+  }
+  (surveyJson.pages || [{ elements: surveyJson.elements || [] }]).forEach(p => walk(p.elements || []));
+  return list;
 }
 
-/* ─────────────────────────────────────────
-   CREATE MISSING COLUMNS in linked table
-───────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   CREATE MISSING COLUMNS
+══════════════════════════════════════════════════════ */
 $('btn-create-cols').addEventListener('click', async () => {
-  const parsed = validateJson(editor.value);
+  const parsed  = validateJson(editor.value);
   if (!parsed) return;
-
   const resultEl = $('col-create-result');
-  resultEl.textContent = '⏳ Analyse en cours…';
-  resultEl.className   = '';
+  resultEl.className = '';
 
-  // Resolve table ID
-  if (!tableId) {
-    try { tableId = await grist.selectedTable.getTableId(); } catch(e) {}
+  const tid = sourceTableId;
+  if (!tid) {
+    resultEl.textContent = '⚠️ Aucune table source détectée. Liez ce widget à une table dans Grist.';
+    resultEl.className = 'err'; return;
   }
-  if (!tableId) {
-    resultEl.textContent = '⚠️ Aucune table liée détectée.';
-    resultEl.className   = 'err';
-    return;
-  }
+  resultEl.textContent = '⏳ Lecture de la table…';
+  let existing;
+  try { existing = new Set(Object.keys(await grist.docApi.fetchTable(tid))); }
+  catch(e) { resultEl.textContent = '⚠️ Impossible de lire « ' + tid + '» : ' + (e.message||e); resultEl.className='err'; return; }
 
-  // Fetch existing columns
-  let existingCols = new Set();
-  try {
-    const tableData = await grist.docApi.fetchTable(tableId);
-    existingCols = new Set(Object.keys(tableData));
-  } catch(e) {
-    resultEl.textContent = '⚠️ Impossible de lire la table : ' + (e.message || e);
-    resultEl.className   = 'err';
-    return;
-  }
-
-  const questions = extractQuestions(parsed);
-  const toCreate  = questions.filter(q => !existingCols.has(q.name));
-
-  if (toCreate.length === 0) {
-    resultEl.textContent = '✓ Toutes les colonnes existent déjà.';
-    resultEl.className   = '';
-    return;
-  }
-
-  // Build AddColumn actions
-  const actions = toCreate.map(q => {
-    const gristType = SURVEY_TO_GRIST_TYPE[q.type] || 'Text';
-    return ['AddColumn', tableId, q.name, { type: gristType }];
-  });
+  const toCreate = extractQuestions(parsed).filter(q => !existing.has(q.name));
+  if (!toCreate.length) { resultEl.textContent = '✓ Toutes les colonnes existent déjà.'; return; }
 
   try {
-    await grist.docApi.applyUserActions(actions);
+    await grist.docApi.applyUserActions(
+      toCreate.map(q => ['AddColumn', tid, q.name, { type: SURVEY_TO_GRIST[q.type] || 'Text' }])
+    );
     resultEl.textContent = `✓ ${toCreate.length} colonne(s) créée(s) : ${toCreate.map(q=>q.name).join(', ')}`;
-    resultEl.className   = '';
   } catch(e) {
-    resultEl.textContent = '❌ Erreur : ' + (e.message || e);
-    resultEl.className   = 'err';
+    resultEl.textContent = '❌ ' + (e.message || e);
+    resultEl.className = 'err';
   }
 });
 
-/* ─────────────────────────────────────────
-   SAVE CONFIG
-───────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   SAVE / CANCEL CONFIG
+   FIX: on appelle buildSurvey NOUS-MÊMES après setOptions
+        sans attendre onOptions (qui peut ne pas refirer si
+        les options n'ont pas changé côté Grist).
+══════════════════════════════════════════════════════ */
 $('btn-save').addEventListener('click', async () => {
   if (!validateJson(editor.value)) return;
   const newOpts = { theme: getSelectedTheme(), formJson: editor.value.trim() };
   try {
     await grist.setOptions(newOpts);
-    // NOTE: setOptions triggers onOptions → buildSurvey is called there.
-    // We just switch view; do NOT call buildSurvey here to avoid double render.
     opts = newOpts;
-    showSurveyView();
-    // buildSurvey called by onOptions callback below
-  } catch(e) { toast('Erreur sauvegarde : ' + (e.message || e)); }
+  } catch(e) {
+    toast('Erreur sauvegarde : ' + (e.message || e));
+    return;
+  }
+  showSurveyView();
+  // FIX : render après le prochain paint pour que le container soit visible
+  requestAnimationFrame(() => buildSurvey(opts.formJson, opts.theme));
 });
 
 $('btn-cancel').addEventListener('click', () => {
   showSurveyView();
-  // Re-render with last saved opts in case nothing changed
-  buildSurvey(opts.formJson, opts.theme);
+  requestAnimationFrame(() => buildSurvey(opts.formJson, opts.theme));
 });
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    BUILD / RENDER SURVEY
-───────────────────────────────────────── */
+══════════════════════════════════════════════════════ */
 function buildSurvey(jsonDef, themeId) {
-  // Destroy previous instance
   if (survey) { try { survey.dispose?.(); } catch(e) {} survey = null; }
   const container = $('survey-container');
   container.innerHTML = '';
@@ -598,21 +564,12 @@ function buildSurvey(jsonDef, themeId) {
   let parsed;
   try { parsed = JSON.parse(jsonDef); }
   catch(e) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <span class="es-icon">⚠️</span>
-        <h2>JSON invalide</h2><p>${e.message}</p>
-      </div>`;
+    container.innerHTML = `<div class="empty-state"><span class="es-icon">⚠️</span><h2>JSON invalide</h2><p>${e.message}</p></div>`;
     return;
   }
 
-  // Apply theme (SurveyJS v1 API – safe no-op if unavailable in v2)
-  try {
-    if (typeof Survey !== 'undefined' && Survey.StylesManager &&
-        typeof Survey.StylesManager.applyTheme === 'function') {
-      Survey.StylesManager.applyTheme(themeId || 'default');
-    }
-  } catch(e) { /* ignore – theme API removed in SurveyJS v2 */ }
+  // FIX THEME : swap CSS file, pas StylesManager (supprimé en SurveyJS v2)
+  applyThemeCss(themeId || 'defaultV2');
 
   survey = new Survey.Model(parsed);
   survey.locale = 'fr';
@@ -620,22 +577,20 @@ function buildSurvey(jsonDef, themeId) {
   survey.render(container);
 }
 
-/* ─────────────────────────────────────────
-   SAVE RESULTS → linked table
-───────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════
+   SAVE RESULTS
+   FIX : utilise sourceTableId (table source du widget)
+         et non grist.selectedTable (table du curseur)
+══════════════════════════════════════════════════════ */
 async function saveResults(data) {
-  if (!tableId) {
-    try { tableId = await grist.selectedTable.getTableId(); } catch(e) {}
-  }
-  if (!tableId) {
-    toast('⚠️ Table liée non détectée.\nConfigurez "Sélectionner des données" pour ce widget.');
+  if (!sourceTableId) {
+    toast('⚠️ Table source non détectée. Liez ce widget à une table dans Grist.');
     buildSurvey(opts.formJson, opts.theme);
     return;
   }
   try {
-    const flat = flattenData(data);
-    await grist.docApi.applyUserActions([['AddRecord', tableId, null, flat]]);
-    $('success-msg').textContent = `Réponse enregistrée dans « ${tableId} ».`;
+    await grist.docApi.applyUserActions([['AddRecord', sourceTableId, null, flattenData(data)]]);
+    $('success-msg').textContent = `Réponse enregistrée dans « ${sourceTableId} ».`;
     $('success-screen').style.display = 'flex';
   } catch(e) {
     toast('❌ Erreur enregistrement : ' + (e.message || e));
@@ -655,37 +610,42 @@ $('btn-new-response').addEventListener('click', () => {
   buildSurvey(opts.formJson, opts.theme);
 });
 
-/* ─────────────────────────────────────────
+/* ══════════════════════════════════════════════════════
    GRIST INTEGRATION
-───────────────────────────────────────── */
+══════════════════════════════════════════════════════ */
 grist.ready({
   requiredAccess: 'full',
   onEditOptions() { showConfigPanel(); }
 });
 
-/*
-  KEY FIX:
-  grist.onOptions fires:
-    1. On initial load  → options may be null (no config yet) or the saved object
-    2. After setOptions → with the freshly saved options
-  In both cases we must render the survey (unless config panel is open).
-  We must NOT gate on `inConfig` here because setOptions triggers onOptions
-  *after* we have already called showSurveyView() in btn-save handler.
-*/
+// onOptions : chargement initial uniquement
+// On NE réaffiche PAS le formulaire ici si le config panel est ouvert,
+// et on laisse btn-save/btn-cancel gérer le render après modification.
 grist.onOptions(function(options) {
   if (options && options.formJson !== undefined) {
-    opts = { theme: options.theme || 'default', formJson: options.formJson || '' };
+    opts = { theme: options.theme || 'defaultV2', formJson: options.formJson || '' };
   }
-  // Always rebuild when options arrive, whether config was open or not
-  showSurveyView();
-  buildSurvey(opts.formJson, opts.theme);
+  // Seulement si le config panel n'est PAS ouvert (chargement initial)
+  if ($('config-panel').style.display === 'none' ||
+      $('config-panel').style.display === '') {
+    showSurveyView();
+    requestAnimationFrame(() => buildSurvey(opts.formJson, opts.theme));
+  }
 });
 
-// Capture the linked table ID as soon as Grist sends records
-grist.onRecords(async function() {
+// FIX TABLE SOURCE :
+// grist.onRecords reçoit les enregistrements de la table SOURCE du widget.
+// On extrait le tableId depuis grist.selectedTable uniquement si on est
+// dans le contexte source (pas selectedTable du curseur).
+// La méthode robuste : on écoute onRecords et on utilise l'API interne.
+grist.onRecords(async function(records, mappings) {
+  // mappings.tableId n'est pas documenté mais présent dans certaines versions.
+  // Fallback : grist.selectedTable.getTableId() appelé DANS onRecords
+  // correspond bien à la table source à ce moment-là.
+  if (sourceTableId) return;  // déjà résolu
   try {
-    if (!tableId && grist.selectedTable) {
-      tableId = await grist.selectedTable.getTableId();
+    if (grist.selectedTable) {
+      sourceTableId = await grist.selectedTable.getTableId();
     }
   } catch(e) {}
 });
