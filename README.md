@@ -48,6 +48,16 @@ Widget personnalisé Grist qui affiche un formulaire [SurveyJS](https://surveyjs
 
 Les fichiers sont envoyés avec le jeton d'accès de l'API des widgets (`docApi.getAccessToken` puis `POST /attachments`) ; leurs identifiants sont écrits dans les colonnes Pièces jointes, à n'importe quel niveau d'imbrication.
 
+### Pièces jointes pour les non-propriétaires (mode par défaut)
+
+Un utilisateur qui n'est pas propriétaire du document ne peut pas toujours écrire dans une colonne « Pièces jointes ». Le widget utilise donc, par défaut, ce contournement :
+
+1. le fichier est envoyé avec l'API standard des widgets, ce qui donne son identifiant ;
+2. les identifiants sont écrits dans une colonne texte masquée `<champ>_ids` (« id des documents »), au format `12,13` ;
+3. une colonne **formule** de type Pièces jointes relit ces identifiants : `[int(i) for i in str($<champ>_ids or "").replace(";", ",").split(",") if i.strip().isdigit()]`.
+
+Le bouton « Créer les éléments manquants » crée les deux colonnes et masque la colonne d'identifiants. Le mode se change dans l'onglet *Comportement* (« Écriture directe » reste disponible). Une colonne Pièces jointes existante, choisie dans le mappage, continue d'être écrite directement.
+
 ## Utilisateurs externes et règles d'accès
 
 Le widget s'exécute avec les droits de la personne connectée. Pour un formulaire public ou partagé, donnez à ces utilisateurs le droit d'**ajouter** des lignes dans la table principale et dans les tables liées (règles d'accès Grist). Les pièces jointes passent par l'API REST du document : testez avec le rôle réel des utilisateurs concernés, car des restrictions d'accès peuvent bloquer l'envoi de fichiers pour des rôles non propriétaires.
@@ -58,4 +68,5 @@ Le widget s'exécute avec les droits de la personne connectée. Pour un formulai
 - Si le JSON change (nouveau champ, nouveau niveau), repassez par l'onglet *Mappage* : les choix déjà faits sont conservés.
 - En mode « modifier », les lignes liées sont supprimées puis recréées à l'envoi.
 - En cas d'échec en cours d'envoi (création), les lignes déjà créées sont supprimées au mieux ; les pièces jointes déjà envoyées restent dans le document.
-- Les questions `html`, `image` et les variables ne sont pas enregistrées.
+- Niveaux imbriqués détectés : panneaux dynamiques, matrices dynamiques, panneaux de détail de ligne (`detailElements`) et colonnes dont la cellule est une matrice ou un panneau dynamique, à toute profondeur.
+- Les questions `html`, `image` et les variables ne sont pas enregistrées.ariables ne sont pas enregistrées.
