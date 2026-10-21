@@ -623,10 +623,10 @@ grist.onOptions(async function(options) {
     }
   } catch(e) {}
 
-  if ($('config-panel').style.display === 'none' \vert{}\vert{}$('config-panel').style.display === '') {
+ if ($('config-panel').style.display === 'none' || $('config-panel').style.display === '') {
     showSurveyView();
     requestAnimationFrame(() => buildSurvey(opts.formJson, opts.theme));
-  }
+}
 });
 </script>
 </body>
