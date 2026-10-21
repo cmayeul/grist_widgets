@@ -619,7 +619,7 @@
     root.innerHTML = '';
     root.append(
       h('header', { class: 'cfg-head' },
-        h('h1', { text: 'Configuration du formulaire SurveyJS' }),
+        h('h1', {}, 'Configuration du formulaire SurveyJS ', h('small', { style: 'color:#6b7785;font-weight:400', text: 'v' + C.VERSION })),
         h('div', { class: 'cfg-actions' },
           h('button', { class: 'btn', text: 'Annuler', onclick: closeConfig }),
           h('button', { class: 'btn primary', text: 'Enregistrer', onclick: saveConfig }))),
