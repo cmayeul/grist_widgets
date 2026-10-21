@@ -1,4 +1,4 @@
-/*
+/* 
  * core.js — logique pure (sans DOM, sans Grist) du widget SurveyJS pour Grist.
  *
  *  - analyse du JSON SurveyJS  -> arbre de « groupes » (racine + tables imbriquées) et de « champs »
