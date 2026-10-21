@@ -196,6 +196,20 @@
     });
   }
 
+  var NESTED_CELLS = { matrixdynamic: 1, paneldynamic: 1, matrixdropdown: 1 };
+
+  // Colonnes d'une matrice : une colonne dont la cellule est elle-même une matrice / un panneau dynamique
+  // devient un niveau imbriqué.
+  function walkColumns(cols, group, matrix) {
+    (cols || []).forEach(function (c) {
+      if (c && NESTED_CELLS[c.cellType]) {
+        walkElements([Object.assign({}, c, { type: c.cellType })], group);
+      } else {
+        addColumnField(group, c, matrix);
+      }
+    });
+  }
+
   function walkElements(elements, group) {
     (elements || []).forEach(function (q) {
       if (!q || !q.type) return;
@@ -205,18 +219,21 @@
           break;
         case 'paneldynamic': {
           var pg = addGroup(group, q, 'paneldynamic');
-          walkElements(q.templateElements || q.elements, pg);
+          walkElements(q.templateElements || q.template || q.elements, pg);
           break;
         }
         case 'matrixdynamic': {
           var mg = addGroup(group, q, 'matrixdynamic');
-          (q.columns || []).forEach(function (c) { addColumnField(mg, c, q); });
+          walkColumns(q.columns, mg, q);
+          // panneau de détail de chaque ligne : peut contenir des matrices / panneaux dynamiques imbriqués
+          walkElements(q.detailElements, mg);
           break;
         }
         case 'matrixdropdown': {
           var dg = addGroup(group, q, 'matrixdropdown');
           addField(dg, { path: ['$row'], title: 'Ligne (clé)', qType: 'row', gType: 'Text', synthetic: true });
-          (q.columns || []).forEach(function (c) { addColumnField(dg, c, q); });
+          walkColumns(q.columns, dg, q);
+          walkElements(q.detailElements, dg);
           break;
         }
         case 'matrix': {
@@ -290,7 +307,10 @@
   function typeCompat(field, colType) {
     var base = baseType(colType);
     var g = field.gType;
-    if (g === 'Attachments') return base === 'Attachments' ? 'ok' : 'bad';
+    if (g === 'Attachments') {
+      // colonne Pièces jointes (directe), ou colonne Texte/Any contenant les identifiants (contournement)
+      return (base === 'Attachments' || base === 'Text' || base === 'Any') ? 'ok' : 'bad';
+    }
     if (base === 'Attachments' || base === 'Ref' || base === 'RefList') return 'bad';
     if (base === 'Any' || base === 'Text') return 'ok';
     if (g === base) return 'ok';
@@ -457,7 +477,8 @@
         } else {
           var match = cols.filter(function (c) {
             return !used[c.id] &&
-              (norm(c.id) === norm(f.key) || norm(c.label) === norm(f.title) || norm(c.label) === norm(f.key)) &&
+              (norm(c.id) === norm(f.key) || norm(c.label) === norm(f.title) || norm(c.label) === norm(f.key) ||
+               (f.gType === 'Attachments' && (norm(c.id) === norm(f.key + 'ids') || norm(c.id) === norm(f.key.replace(/\./g, '_') + 'ids')))) &&
               typeCompat(f, c.type) !== 'bad';
           })[0];
           fm = { col: match ? match.id : NEW, type: f.gType, newName: sanitizeColId(f.path.join('_')) };
@@ -542,7 +563,15 @@
     group.fields.forEach(function (f) {
       var fm = gm.fields[f.key];
       if (!fm || !fm.col || fm.col === NEW) return;
-      var v = toGrist(rec[f.key], colTypeOf(gm.table, fm.col));
+      var ct = colTypeOf(gm.table, fm.col);
+      if (f.gType === 'Attachments' && baseType(ct) !== 'Attachments') {
+        // contournement : « 12,13 » dans une colonne Texte ; une colonne formule de type Pièces jointes les relit
+        var raw = rec[f.key];
+        var ids = (Array.isArray(raw) ? raw : [raw]).filter(function (x) { return typeof x === 'number'; });
+        if (ids.length) out[fm.col] = ids.join(',');
+        return;
+      }
+      var v = toGrist(rec[f.key], ct);
       if (v !== undefined) out[fm.col] = v;
     });
     return out;
@@ -563,7 +592,13 @@
     return res;
   }
 
+  // Formule de la colonne Pièces jointes qui relit la colonne d'identifiants (texte « 12,13 »)
+  function attachmentsFormula(idsCol) {
+    return '[int(i) for i in str($' + idsCol + ' or "").replace(";", ",").split(",") if i.strip().isdigit()]';
+  }
+
   return {
+    attachmentsFormula: attachmentsFormula,
     ROOT_ID: ROOT_ID, NEW: NEW, KIND_LABEL: KIND_LABEL, GRIST_TYPES: GRIST_TYPES,
     txt: txt, clone: clone, norm: norm, sanitizeColId: sanitizeColId, sanitizeTableId: sanitizeTableId,
     getPath: getPath, setPath: setPath, unwrapList: unwrapList, baseType: baseType,
