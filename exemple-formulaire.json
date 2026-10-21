@@ -1,0 +1,69 @@
+{
+  "title": "Demande de projet",
+  "description": "Exemple multi-niveaux : questions simples, matrice dynamique, panneau dynamique contenant lui-même une matrice dynamique, et pièces jointes.",
+  "showProgressBar": "top",
+  "pages": [
+    {
+      "name": "general",
+      "title": "Informations générales",
+      "elements": [
+        { "type": "text", "name": "titre", "title": "Titre du projet", "isRequired": true },
+        { "type": "text", "name": "date_debut", "title": "Date de début", "inputType": "date" },
+        { "type": "text", "name": "budget", "title": "Budget estimé (€)", "inputType": "number" },
+        {
+          "type": "radiogroup", "name": "domaine", "title": "Domaine",
+          "choices": ["Médical", "Social", "Éducatif"], "showOtherItem": true
+        },
+        {
+          "type": "checkbox", "name": "pays", "title": "Pays concernés",
+          "choices": ["Liban", "Syrie", "Jordanie", "Irak"]
+        },
+        { "type": "boolean", "name": "urgent", "title": "Projet urgent ?" },
+        { "type": "rating", "name": "priorite", "title": "Priorité", "rateCount": 5 },
+        { "type": "comment", "name": "description_projet", "title": "Description" },
+        { "type": "file", "name": "documents", "title": "Documents joints", "allowMultiple": true, "maxSize": 10485760 }
+      ]
+    },
+    {
+      "name": "budget",
+      "title": "Budget détaillé",
+      "elements": [
+        {
+          "type": "matrixdynamic", "name": "lignes_budget", "title": "Lignes de budget",
+          "rowCount": 1, "addRowText": "Ajouter une ligne",
+          "columns": [
+            { "name": "poste", "title": "Poste", "cellType": "text" },
+            { "name": "categorie", "title": "Catégorie", "cellType": "dropdown", "choices": ["Personnel", "Matériel", "Transport", "Autre"] },
+            { "name": "montant", "title": "Montant (€)", "cellType": "text", "inputType": "number" },
+            { "name": "justificatif", "title": "Justificatif", "cellType": "file" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "partenaires",
+      "title": "Partenaires et actions",
+      "elements": [
+        {
+          "type": "paneldynamic", "name": "partenaires", "title": "Partenaires",
+          "templateTitle": "Partenaire #{panelIndex}", "panelAddText": "Ajouter un partenaire",
+          "templateElements": [
+            { "type": "text", "name": "nom", "title": "Nom du partenaire", "isRequired": true },
+            { "type": "text", "name": "email", "title": "Courriel", "inputType": "email" },
+            {
+              "type": "matrixdynamic", "name": "actions", "title": "Actions confiées",
+              "rowCount": 0, "addRowText": "Ajouter une action",
+              "columns": [
+                { "name": "action", "title": "Action", "cellType": "text" },
+                { "name": "echeance", "title": "Échéance", "cellType": "text", "inputType": "date" },
+                { "name": "fait", "title": "Réalisée", "cellType": "boolean" }
+              ]
+            }
+          ]
+        },
+        { "type": "signaturepad", "name": "signature", "title": "Signature du responsable" }
+      ]
+    }
+  ],
+  "completedHtml": "<h3>Merci, votre demande a bien été enregistrée.</h3>"
+}
