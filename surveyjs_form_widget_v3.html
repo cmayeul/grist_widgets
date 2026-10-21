@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Formulaire SurveyJS pour Grist</title>
+    <!-- SurveyJS CSS & JS - Version stable validée -->
+    <link href="https://unpkg.com/survey-core@1.11.7/defaultV2.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/survey-core@1.11.7/survey.core.min.js"></script>
+    <script src="https://unpkg.com/survey-js-ui@1.11.7/survey-js-ui.min.js"></script>
+    <script src="https://unpkg.com/survey-core@1.11.7/survey.i18n.min.js"></script>
+    <!-- Grist Plugin API -->
+    <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background: #f9f9f9; }
+        #config-panel { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        textarea { width: 100%; height: 120px; font-family: monospace; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+
+    <div id="config-panel">
+        <h3>Configuration du Formulaire SurveyJS</h3>
+        <label for="json-input">Code JSON du formulaire :</label><br>
+        <textarea id="json-input" placeholder='Collez votre JSON SurveyJS ici...'></textarea><br><br>
+        <button id="save-config">Enregistrer & Analyser le Schéma</button>
+    </div>
+
+    <div id="surveyContainer"></div>
+
+    <script>
+        let currentTableId = null;
+        let currentConfig = {
+            surveyJson: {
+                elements: [
+                    { type: "text", name: "nom", title: "Votre Nom" },
+                    { type: "comment", name: "commentaire", title: "Commentaire" }
+                ]
+            }
+        };
+
+        // 1. Initialisation de Grist
+        grist.ready({
+            requiredAccess: 'full',
+            columns: []
+        });
+
+        // Récupérer l'identifiant de la table active
+        grist.onRecords(async (records) => {
+            try {
+                const table = grist.getTable();
+                if (table && table._platform && table._platform.getTableId) {
+                    currentTableId = await table._platform.getTableId();
+                }
+            } catch (e) {
+                console.error("Impossible de récupérer l'ID de la table :", e);
+            }
+        });
+
+        // Charger la configuration sauvegardée
+        grist.onOptions(function (options) {
+            if (options && options.surveyConfig) {
+                currentConfig = options.surveyConfig;
+            }
+            document.getElementById('json-input').value = JSON.stringify(currentConfig.surveyJson, null, 2);
+            initSurvey();
+        });
+
+        // Sauvegarde de la configuration
+        document.getElementById('save-config').addEventListener('click', async () => {
+            const rawJson = document.getElementById('json-input').value;
+            try {
+                const parsedJson = JSON.parse(rawJson);
+                currentConfig.surveyJson = parsedJson;
+                
+                if (currentTableId) {
+                    await analyzeAndSyncGristSchema(parsedJson);
+                }
+
+                await grist.setOptions({ surveyConfig: currentConfig });
+                alert('Configuration enregistrée avec succès !');
+                initSurvey();
+            } catch (e) {
+                alert('Erreur : ' + e.message);
+            }
+        });
+
+        // 2. Analyse et création automatique des colonnes
+        async function analyzeAndSyncGristSchema(surveyJson) {
+            const questions = extractQuestions(surveyJson);
+            const actions = [];
+
+            for (const q of questions) {
+                let gristType = 'Text';
+                if (q.type === 'boolean') gristType = 'Bool';
+                if (q.type === 'file') gristType = 'Attachments';
+
+                actions.push([
+                    "AddColumn", 
+                    currentTableId, 
+                    q.name, 
+                    { type: gristType, label: q.title || q.name }
+                ]);
+            }
+
+            if (actions.length > 0) {
+                try {
+                    await grist.docApi.applyUserActions(actions);
+                } catch (err) {
+                    console.info("Certaines colonnes existent déjà :", err);
+                }
+            }
+        }
+
+        function extractQuestions(surveyJson) {
+            let questions = [];
+            const pages = surveyJson.pages || [{ elements: surveyJson.elements || [] }];
+            pages.forEach(page => {
+                if (page.elements) {
+                    page.elements.forEach(el => {
+                        questions.push(el);
+                        if (el.elements) {
+                            questions = questions.concat(el.elements);
+                        }
+                    });
+                }
+            });
+            return questions;
+        }
+
+        // 3. Initialisation et rendu du formulaire SurveyJS
+        function initSurvey() {
+            const survey = new Survey.Model(currentConfig.surveyJson);
+            
+            survey.onComplete.add(async (sender) => {
+                const results = sender.data;
+                
+                try {
+                    const table = grist.getTable();
+                    await table.create([results]);
+
+                    alert('Formulaire soumis et enregistré dans Grist avec succès !');
+                    survey.clear();
+                } catch (err) {
+                    alert('Erreur lors de l\'enregistrement dans Grist : ' + err.message);
+                }
+            });
+
+            document.getElementById("surveyContainer").innerHTML = "";
+            survey.render("surveyContainer");
+        }
+    </script>
+</body>
+</html>
