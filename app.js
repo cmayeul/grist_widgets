@@ -62,6 +62,7 @@
     customCss: '',
     mode: 'new',            // 'new' | 'edit'
     afterSubmit: 'again',   // 'again' | 'auto' | 'none'
+    attachmentsMode: 'ids', // 'ids' : identifiants dans une colonne masquée + colonne formule | 'direct' : colonne Pièces jointes
     mapping: null,
     colTypes: {}            // types réels des colonnes mappées, mémorisés à l'enregistrement de la config
   };
@@ -350,15 +351,22 @@
       var fm = gm.fields[f.key];
       if (!fm || !fm.col || fm.col === NEW) return;
       var type = ctx.colType(gm.table, fm.col);
-      var v = C.fromGrist(rec[fm.col], type, f);
-      if (v === undefined) return;
-      if (C.baseType(type) === 'Attachments') {
-        v = v.map(function (id) {
+      var v;
+      if (f.gType === 'Attachments') {
+        var raw = C.unwrapList(rec[fm.col]);
+        var ids;
+        if (C.baseType(type) === 'Attachments') ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        else ids = String(raw == null ? '' : raw).split(/[,;\s]+/).filter(Boolean).map(Number).filter(function (n) { return isFinite(n); });
+        if (!ids.length) return;
+        v = ids.map(function (id) {
           var meta = ctx.attMeta[id] || {};
           var url = ctx.tok ? ctx.tok.baseUrl + '/attachments/' + id + '/download?auth=' + encodeURIComponent(ctx.tok.token) : '';
           ctx.existing[url] = id;
           return { name: meta.name || ('fichier-' + id), type: meta.type || 'application/octet-stream', content: url };
         });
+      } else {
+        v = C.fromGrist(rec[fm.col], type, f);
+        if (v === undefined) return;
       }
       C.setPath(obj, f.path, v);
     });
@@ -831,18 +839,49 @@
       h('td', {}, fieldStatus(f, fm, gm)));
   }
 
+  // Retire les colonnes des vues (champs de sections) : elles restent dans la table mais sont masquées.
+  async function hideColumns(items) {
+    var tabs = await grist.docApi.fetchTable('_grist_Tables');
+    var cols = await grist.docApi.fetchTable('_grist_Tables_column');
+    var fields = await grist.docApi.fetchTable('_grist_Views_section_field');
+    var tref = {};
+    tabs.id.forEach(function (id, i) { tref[tabs.tableId[i]] = id; });
+    var refs = {};
+    items.forEach(function (it) {
+      cols.id.forEach(function (id, i) {
+        if (cols.parentId[i] === tref[it.table] && cols.colId[i] === it.col) refs[id] = true;
+      });
+    });
+    var rm = fields.id.filter(function (id, i) { return refs[fields.colRef[i]]; });
+    if (rm.length) await applyUA([['BulkRemoveRecord', '_grist_Views_section_field', rm]]);
+  }
+
   async function createMissing() {
     S.busy = true;
     renderConfig();
     var tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
     var mapping = S.draft.mapping;
+    var pending = []; // champs Pièces jointes en mode « identifiants » : formule à ajouter, colonne à masquer
+    var idsMode = S.draft.attachmentsMode !== 'direct';
+    function mkSpec(f, gm) {
+      var fm = gm.fields[f.key];
+      var spec = C.colSpec(f, fm, tz);
+      if (idsMode && (fm.type || f.gType) === 'Attachments') {
+        pending.push({ gm: gm, key: f.key, name: spec.id, label: f.title || f.key });
+        spec.id = C.sanitizeColId(spec.id + '_ids');
+        spec.type = 'Text';
+        spec.label = (f.title || f.key) + ' (id des documents)';
+        delete spec.widgetOptions;
+      }
+      return spec;
+    }
     try {
       await (async function rec(g, parentTable) {
         var gm = mapping[g.id];
         var toCreate = g.fields.filter(function (f) { return gm.fields[f.key] && gm.fields[f.key].col === NEW; });
         if (g.id !== ROOT && gm.table === NEW) {
           var specs = [{ id: C.sanitizeColId(gm.newLinkName || parentTable), type: 'Ref:' + parentTable, isFormula: false, label: gm.newLinkName || parentTable }];
-          toCreate.forEach(function (f) { specs.push(C.colSpec(f, gm.fields[f.key], tz)); });
+          toCreate.forEach(function (f) { specs.push(mkSpec(f, gm)); });
           var rv = await applyUA([['AddTable', gm.newTableName || C.sanitizeTableId(g.key), specs]]);
           var info = rv[0];
           var ids = info.columns;
@@ -865,7 +904,7 @@
           }
           for (var i = 0; i < toCreate.length; i++) {
             var f = toCreate[i];
-            var spec = C.colSpec(f, gm.fields[f.key], tz);
+            var spec = mkSpec(f, gm);
             var id = spec.id;
             delete spec.id;
             var r = await applyUA([['AddColumn', gm.table, id, spec]]);
@@ -874,6 +913,18 @@
         }
         for (var k = 0; k < g.groups.length; k++) await rec(g.groups[k], gm.table);
       })(S.analysis, null);
+      // colonnes formule « Pièces jointes » relisant les identifiants, puis masquage des colonnes d'identifiants
+      var toHide = [];
+      for (var pi = 0; pi < pending.length; pi++) {
+        var pd = pending[pi];
+        var idsCol = pd.gm.fields[pd.key].col;
+        await applyUA([['AddColumn', pd.gm.table, pd.name,
+          { type: 'Attachments', isFormula: true, formula: C.attachmentsFormula(idsCol), label: pd.label }]]);
+        toHide.push({ table: pd.gm.table, col: idsCol });
+      }
+      if (toHide.length) {
+        try { await hideColumns(toHide); } catch (eh) { console.warn('Masquage impossible', eh); toast('Colonnes d’identifiants créées mais non masquées : masquez-les manuellement.', 'error'); }
+      }
       await loadMeta();
       toast('Tables et colonnes créées', 'ok');
     } catch (e) {
@@ -992,6 +1043,9 @@
         radio('afterSubmit', 'again', 'Proposer « Nouvelle saisie »'),
         radio('afterSubmit', 'auto', 'Réinitialiser automatiquement après 2 secondes'),
         radio('afterSubmit', 'none', 'Afficher uniquement le message de remerciement')) : null,
+      h('h3', { text: 'Pièces jointes' }),
+      radio('attachmentsMode', 'ids', 'Identifiants + colonne formule (recommandé pour les non-propriétaires)', 'Les fichiers sont envoyés avec l’API des widgets ; leurs identifiants sont écrits dans une colonne texte masquée « id des documents », et une colonne formule de type Pièces jointes les relit.'),
+      radio('attachmentsMode', 'direct', 'Écriture directe dans une colonne Pièces jointes', 'Fonctionne pour les propriétaires du document ; peut échouer pour les autres utilisateurs.'),
       h('p', { class: 'hint', html: 'Le message de fin se personnalise avec <code>completedHtml</code> dans le JSON du formulaire.' })
     );
   }
