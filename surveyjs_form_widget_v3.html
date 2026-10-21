@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <title>Formulaire SurveyJS pour Grist</title>
-    <!-- SurveyJS CSS & Core JS -->
+    <!-- SurveyJS CSS & JS (Core + UI Renderer) -->
     <link href="https://unpkg.com/survey-core@1.11.7/defaultV2.min.css" rel="stylesheet">
     <script src="https://unpkg.com/survey-core@1.11.7/survey.core.min.js"></script>
-    <!-- Utilisation de la locale française si besoin -->
+    <script src="https://unpkg.com/survey-js-ui@1.11.7/survey-js-ui.min.js"></script>
     <script src="https://unpkg.com/survey-core@1.11.7/survey.i18n.min.js"></script>
     <!-- Grist Plugin API -->
     <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -131,8 +131,8 @@
 
         // 3. Initialisation et rendu du formulaire SurveyJS
         function initSurvey() {
-            // Nettoyer le conteneur avant un nouveau rendu
-            document.getElementById("surveyContainer").innerHTML = "";
+            const container = document.getElementById("surveyContainer");
+            container.innerHTML = "";
 
             const survey = new Survey.Model(currentConfig.surveyJson);
             
@@ -150,8 +150,8 @@
                 }
             });
 
-            // Rendu natif compatible avec survey.core
-            survey.render(document.getElementById("surveyContainer"));
+            // Passage direct de l'élément DOM récupéré via getElementById
+            survey.render(container);
         }
     </script>
 </body>
