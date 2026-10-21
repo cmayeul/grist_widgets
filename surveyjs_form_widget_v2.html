@@ -591,8 +591,12 @@ $('btn-new-response').addEventListener('click', () => {$('success-screen').style
   buildSurvey(opts.formJson, opts.theme);
 });
 
-grist.ready({ requiredAccess: 'full', onEditOptions() { showConfigPanel(); } });
-
+grist.ready({ 
+  requiredAccess: 'full', 
+  onEditOptions: function() { 
+    showConfigPanel(); // ✅ Réaffiche le panneau de configuration du widget
+  } 
+});
 grist.onOptions(async function(options) {
   if (options && options.formJson !== undefined) {
     opts = {
