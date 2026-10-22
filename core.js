@@ -1,4 +1,4 @@
-/* 
+/*
  * core.js — logique pure (sans DOM, sans Grist) du widget SurveyJS pour Grist.
  *
  *  - analyse du JSON SurveyJS  -> arbre de « groupes » (racine + tables imbriquées) et de « champs »
@@ -598,6 +598,7 @@
   }
 
   return {
+    VERSION: '2026-10-21c',
     attachmentsFormula: attachmentsFormula,
     ROOT_ID: ROOT_ID, NEW: NEW, KIND_LABEL: KIND_LABEL, GRIST_TYPES: GRIST_TYPES,
     txt: txt, clone: clone, norm: norm, sanitizeColId: sanitizeColId, sanitizeTableId: sanitizeTableId,
