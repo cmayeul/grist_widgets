@@ -309,9 +309,10 @@
     var g = field.gType;
     if (g === 'Attachments') {
       // colonne Pièces jointes (directe), ou colonne Texte/Any contenant les identifiants (contournement)
-      return (base === 'Attachments' || base === 'Text' || base === 'Any') ? 'ok' : 'bad';
+      return (base === 'Attachments' || base === 'Text' || base === 'Any' || base === 'ChoiceList') ? 'ok' : 'bad';
     }
-    if (base === 'Attachments' || base === 'Ref' || base === 'RefList') return 'bad';
+    if (base === 'Attachments') return 'bad';
+    if (base === 'Ref' || base === 'RefList') return 'warn';
     if (base === 'Any' || base === 'Text') return 'ok';
     if (g === base) return 'ok';
     if (g === 'ChoiceList' && base === 'Choice') return 'warn';
@@ -382,9 +383,14 @@
         var ids = (Array.isArray(v) ? v : [v]).filter(function (x) { return typeof x === 'number'; });
         return ids.length ? ['L'].concat(ids) : undefined;
       }
-      case 'Ref':
-      case 'RefList':
-        return undefined;
+      case 'Ref': {
+        var rn = Number(Array.isArray(v) ? v[0] : v);
+        return isFinite(rn) && rn > 0 ? rn : undefined;
+      }
+      case 'RefList': {
+        var rl = (Array.isArray(v) ? v : [v]).map(Number).filter(function (x) { return isFinite(x) && x > 0; });
+        return rl.length ? ['L'].concat(rl) : undefined;
+      }
       default: // Any
         if (typeof v === 'object') return JSON.stringify(v);
         return v;
@@ -565,10 +571,14 @@
       if (!fm || !fm.col || fm.col === NEW) return;
       var ct = colTypeOf(gm.table, fm.col);
       if (f.gType === 'Attachments' && baseType(ct) !== 'Attachments') {
-        // contournement : « 12,13 » dans une colonne Texte ; une colonne formule de type Pièces jointes les relit
+        // contournement : liste d'identifiants dans une colonne masquée ; une colonne formule de type Pièces jointes les relit
         var raw = rec[f.key];
         var ids = (Array.isArray(raw) ? raw : [raw]).filter(function (x) { return typeof x === 'number'; });
-        if (ids.length) out[fm.col] = ids.join(',');
+        if (!ids.length) return;
+        var cb = baseType(ct);
+        if (cb === 'ChoiceList') out[fm.col] = ['L'].concat(ids.map(String)); // liste d'identifiants (texte)
+        else if (cb === 'Any') out[fm.col] = ['L'].concat(ids);               // liste d'entiers
+        else out[fm.col] = ids.join(',');                                      // ancienne colonne Texte : « 12,13 »
         return;
       }
       var v = toGrist(rec[f.key], ct);
@@ -592,13 +602,127 @@
     return res;
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* Listes liées (valeurs issues d'une autre table)                      */
+  /* ------------------------------------------------------------------ */
+
+  var LOOKUP_TYPES = { text: 1, dropdown: 1, tagbox: 1, checkbox: 1, radiogroup: 1, buttongroup: 1, ranking: 1 };
+  var LOOKUP_OPS = [
+    ['=', 'est égal à'], ['!=', 'est différent de'], ['contains', 'contient'],
+    ['>', 'supérieur à'], ['>=', 'supérieur ou égal à'], ['<', 'inférieur à'], ['<=', 'inférieur ou égal à'],
+    ['in', 'est dans la liste (a, b, c)'], ['empty', 'est vide'], ['notempty', 'n’est pas vide']
+  ];
+
+  function lookupEligible(f) {
+    return !!f && f.path.length === 1 && !f.synthetic && !!LOOKUP_TYPES[f.qType];
+  }
+
+  function isEmptyVal(v) {
+    return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+  }
+
+  function looseEq(a, b) {
+    if (a === null || a === undefined || b === null || b === undefined) return false;
+    var na = typeof a === 'number' || (typeof a === 'string' && a.trim() !== '' && isFinite(Number(a)));
+    var nb = typeof b === 'number' || (typeof b === 'string' && b.trim() !== '' && isFinite(Number(b)));
+    if (na && nb) return Number(a) === Number(b);
+    return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  }
+
+  function listOf(v) {
+    v = unwrapList(v);
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && /[,;]/.test(v)) return v.split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);
+    return [v];
+  }
+
+  function cmpOrder(a, b) {
+    var na = Number(a), nb = Number(b);
+    if (a !== '' && b !== '' && isFinite(na) && isFinite(nb)) return na - nb;
+    var sa = String(a).toLowerCase(), sb = String(b).toLowerCase();
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  }
+
+  // cell : valeur brute Grist (éventuellement liste) ; ref : valeur de référence (texte, nombre ou liste)
+  function matchOp(cell, op, ref) {
+    cell = unwrapList(cell);
+    var cells = Array.isArray(cell) ? cell : [cell];
+    var empty = cells.every(isEmptyVal);
+    if (op === 'empty') return empty;
+    if (op === 'notempty') return !empty;
+    var refs = op === 'in' || Array.isArray(ref) ? listOf(ref) : null;
+    switch (op) {
+      case '=':
+        return refs ? cells.some(function (c) { return refs.some(function (r) { return looseEq(c, r); }); })
+                    : cells.some(function (c) { return looseEq(c, ref); });
+      case 'in':
+        return cells.some(function (c) { return refs.some(function (r) { return looseEq(c, r); }); });
+      case '!=':
+        return refs ? !cells.some(function (c) { return refs.some(function (r) { return looseEq(c, r); }); })
+                    : !cells.some(function (c) { return looseEq(c, ref); });
+      case 'contains':
+        return cells.some(function (c) { return !isEmptyVal(c) && String(c).toLowerCase().indexOf(String(ref).toLowerCase()) >= 0; });
+      case '>': return cells.some(function (c) { return !isEmptyVal(c) && cmpOrder(c, ref) > 0; });
+      case '>=': return cells.some(function (c) { return !isEmptyVal(c) && cmpOrder(c, ref) >= 0; });
+      case '<': return cells.some(function (c) { return !isEmptyVal(c) && cmpOrder(c, ref) < 0; });
+      case '<=': return cells.some(function (c) { return !isEmptyVal(c) && cmpOrder(c, ref) <= 0; });
+    }
+    return true;
+  }
+
+  // rows : [{id, col: valeur, ...}] ; b : liaison ; dynRefs : valeurs courantes des filtres dynamiques (même ordre que b.dynamic)
+  // Retourne [{value, text}]
+  function buildItems(rows, b, dynRefs) {
+    dynRefs = dynRefs || [];
+    var fixed = (b.fixed || []).filter(function (f) { return f && f.col; });
+    var dyn = (b.dynamic || []).map(function (f, i) { return { f: f, ref: dynRefs[i] }; }).filter(function (d) { return d.f && d.f.col; });
+
+    var active = [];
+    for (var i = 0; i < dyn.length; i++) {
+      var noRef = dyn[i].f.op === 'empty' || dyn[i].f.op === 'notempty';
+      if (!noRef && isEmptyVal(dyn[i].ref)) {
+        if ((b.emptyBehavior || 'none') === 'none') return []; // filtre dynamique non renseigné : aucune valeur
+        continue;                                               // « toutes les valeurs »
+      }
+      active.push(dyn[i]);
+    }
+
+    var seen = {}, items = [];
+    rows.forEach(function (row) {
+      for (var a = 0; a < fixed.length; a++) {
+        if (!matchOp(row[fixed[a].col], fixed[a].op || '=', fixed[a].value)) return;
+      }
+      for (var d = 0; d < active.length; d++) {
+        if (!matchOp(row[active[d].f.col], active[d].f.op || '=', active[d].ref)) return;
+      }
+      var val = b.valueCol === '$id' ? row.id : unwrapList(row[b.valueCol]);
+      if (Array.isArray(val)) val = val.join(', ');
+      if (isEmptyVal(val)) return;
+      var lab = b.labelCol ? unwrapList(row[b.labelCol]) : val;
+      if (Array.isArray(lab)) lab = lab.join(', ');
+      var key = typeof val + ':' + String(val);
+      if (seen[key]) return;
+      seen[key] = true;
+      items.push({ value: val, text: isEmptyVal(lab) ? String(val) : String(lab) });
+    });
+    if ((b.sort || 'label') === 'label') {
+      items.sort(function (x, y) { return x.text.localeCompare(y.text, undefined, { numeric: true, sensitivity: 'base' }); });
+    }
+    return items;
+  }
+
   // Formule de la colonne Pièces jointes qui relit la colonne d'identifiants (texte « 12,13 »)
   function attachmentsFormula(idsCol) {
-    return '[int(i) for i in str($' + idsCol + ' or "").replace(";", ",").split(",") if i.strip().isdigit()]';
+    return 'ids = $' + idsCol + '\n' +
+      'if isinstance(ids, str):\n' +
+      '  ids = ids.replace(";", ",").split(",")\n' +
+      'return [int(i) for i in (ids or []) if str(i).strip().isdigit()]';
   }
 
   return {
-    VERSION: '2026-10-21c',
+    VERSION: '2026-10-23a',
+    LOOKUP_OPS: LOOKUP_OPS, lookupEligible: lookupEligible, matchOp: matchOp, buildItems: buildItems, isEmptyVal: isEmptyVal,
     attachmentsFormula: attachmentsFormula,
     ROOT_ID: ROOT_ID, NEW: NEW, KIND_LABEL: KIND_LABEL, GRIST_TYPES: GRIST_TYPES,
     txt: txt, clone: clone, norm: norm, sanitizeColId: sanitizeColId, sanitizeTableId: sanitizeTableId,
