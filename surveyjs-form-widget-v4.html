@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
@@ -83,6 +83,9 @@
     .radio { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
     .radio span { display: flex; flex-direction: column; } .radio small { color: var(--muted); }
 
+    #boot { position: fixed; inset: 0; z-index: 100; background: #fff; color: #7b241c; padding: 24px; overflow: auto; }
+    #boot small { color: #6b7785; display: block; margin-top: 12px; }
+    #boot li { font-family: ui-monospace, monospace; font-size: 12.5px; margin: 6px 0; word-break: break-word; }
     .toast { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 30px); opacity: 0; pointer-events: none;
       background: #25303b; color: #fff; padding: 10px 16px; border-radius: 8px; transition: .2s; z-index: 50; max-width: 90vw; }
     .toast.show { opacity: 1; transform: translate(-50%, 0); } .toast.ok { background: var(--ok); } .toast.error { background: var(--bad); }
@@ -96,6 +99,39 @@
   </div>
   <div id="config" hidden></div>
   <div id="toast" class="toast"></div>
+  <div id="boot" hidden></div>
+  <script>
+    /* Diagnostic de démarrage : affiche à l'écran toute erreur de chargement ou d'exécution */
+    (function () {
+      var box = document.getElementById('boot'), errs = [];
+      function show(extra) {
+        var list = errs.concat(extra || []);
+        if (!list.length) return;
+        box.hidden = false;
+        box.innerHTML = '<strong>Le widget n’a pas pu démarrer</strong><ul></ul><small>Rechargez la page en vidant le cache (Ctrl+Maj+R). Si le problème persiste, transmettez ce message.</small>';
+        list.forEach(function (m) { var li = document.createElement('li'); li.textContent = m; box.querySelector('ul').appendChild(li); });
+      }
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && (t.src || t.href) && t !== window) errs.push('Fichier non chargé : ' + (t.src || t.href));
+        else errs.push((e.message || 'Erreur') + (e.filename ? ' [' + e.filename.split('/').pop().split('?')[0] + ':' + e.lineno + ']' : ''));
+        show();
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        errs.push('Erreur asynchrone : ' + ((e.reason && e.reason.message) || e.reason));
+        show();
+      });
+      setTimeout(function () {
+        if (window.__sjReady) return;
+        var miss = [];
+        if (typeof grist === 'undefined') miss.push('API Grist (grist-plugin-api.js) absente');
+        if (typeof Survey === 'undefined') miss.push('survey-core absent');
+        if (typeof SurveyUI === 'undefined') miss.push('survey-js-ui absent');
+        if (typeof SJCore === 'undefined') miss.push('core.js absent ou en erreur');
+        show(miss.length ? miss : ['Démarrage incomplet (app.js non exécuté).']);
+      }, 4000);
+    })();
+  </script>
 
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/survey-core@3.2.2/survey.core.min.js"></script>
