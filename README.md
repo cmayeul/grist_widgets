@@ -1,7 +1,3 @@
-# grist_widgets
-Plusieurs widget personnalisés
-
-
 # Widget Grist « Formulaires SurveyJS »
 
 Widget personnalisé Grist qui affiche un formulaire [SurveyJS](https://surveyjs.io/) à partir d'un JSON et enregistre les réponses dans Grist, y compris les données imbriquées (matrices et panneaux dynamiques) dans des tables liées, et les pièces jointes dans de vraies colonnes « Pièces jointes ».
@@ -32,6 +28,19 @@ Widget personnalisé Grist qui affiche un formulaire [SurveyJS](https://surveyjs
 3. **Apparence** : thème parmi les 32 thèmes officiels SurveyJS, ou thème personnalisé exporté du Creator, options du modèle SurveyJS en JSON (`locale`, `showProgressBar`, `completeText`…), CSS libre, aperçu en direct. À l'envoi de l'aperçu, rien n'est écrit : une simulation des enregistrements est affichée.
 4. **Comportement** : créer une nouvelle ligne à chaque envoi, ou modifier la ligne sélectionnée (le formulaire est alors pré-rempli, y compris les lignes liées).
 
+## Listes liées (valeurs issues d'une autre table)
+
+Onglet **3 · Listes liées** : un champ de type choix unique, liste déroulante, cases à cocher, étiquettes, classement ou **texte** (suggestions) prend ses valeurs dans une autre table Grist. Cela fonctionne à tous les niveaux (matrices, panneaux dynamiques, panneaux de détail).
+
+- **Valeur enregistrée / libellé affiché** : deux colonnes de la table source (ou l'ID de la ligne, pour remplir une colonne **Référence**).
+- **Filtre par défaut (concepteur)** : conditions fixes combinées par « ET » (égal, différent, contient, supérieur/inférieur, dans la liste, vide / non vide).
+- **Filtre dynamique (utilisateur)** : la condition compare une colonne de la table source à la réponse d'un autre champ du formulaire : champ de la même ligne ou du même panneau, ou d'un niveau parent. Ce champ peut être une question purement « filtre », non enregistrée (mappage : « ignorer »). Chaque ligne d'une matrice a sa propre liste. Tant que le champ est vide : aucune valeur, ou toutes les valeurs (au choix).
+- Si la valeur choisie n'est plus dans la liste après un changement de filtre, elle est effacée. Les listes se recalculent à chaque changement.
+- Le bouton « Tester la liste » affiche le nombre de valeurs et un aperçu.
+- Les utilisateurs du formulaire doivent avoir un **accès en lecture** à la table source (règles d'accès Grist).
+- Les données de la table source sont lues une fois par formulaire, puis filtrées dans le navigateur : à éviter pour des tables de plusieurs dizaines de milliers de lignes.
+- Pour une colonne **Référence**, le bouton « Créer les éléments manquants » crée la colonne `Ref:<table>` et tente de régler la colonne affichée ; si Grist le refuse, choisissez-la à la main dans les options de la colonne.
+
 ## Correspondance des types
 
 | Question SurveyJS | Colonne Grist créée |
@@ -53,8 +62,15 @@ Les fichiers sont envoyés avec le jeton d'accès de l'API des widgets (`docApi.
 Un utilisateur qui n'est pas propriétaire du document ne peut pas toujours écrire dans une colonne « Pièces jointes ». Le widget utilise donc, par défaut, ce contournement :
 
 1. le fichier est envoyé avec l'API standard des widgets, ce qui donne son identifiant ;
-2. les identifiants sont écrits dans une colonne texte masquée `<champ>_ids` (« id des documents »), au format `12,13` ;
-3. une colonne **formule** de type Pièces jointes relit ces identifiants : `[int(i) for i in str($<champ>_ids or "").replace(";", ",").split(",") if i.strip().isdigit()]`.
+2. les identifiants sont écrits **sous forme de liste** (colonne de type Liste de choix, même pour un seul fichier : `["12","13"]`) dans une colonne masquée `<champ>_ids` (« id des documents ») ;
+3. une colonne **formule** de type Pièces jointes relit cette liste (elle accepte aussi l'ancien format texte `12,13`) :
+
+```python
+ids = $champ_ids
+if isinstance(ids, str):
+  ids = ids.replace(";", ",").split(",")
+return [int(i) for i in (ids or []) if str(i).strip().isdigit()]
+```
 
 Le bouton « Créer les éléments manquants » crée les deux colonnes et masque la colonne d'identifiants. Le mode se change dans l'onglet *Comportement* (« Écriture directe » reste disponible). Une colonne Pièces jointes existante, choisie dans le mappage, continue d'être écrite directement.
 
@@ -69,4 +85,4 @@ Le widget s'exécute avec les droits de la personne connectée. Pour un formulai
 - En mode « modifier », les lignes liées sont supprimées puis recréées à l'envoi.
 - En cas d'échec en cours d'envoi (création), les lignes déjà créées sont supprimées au mieux ; les pièces jointes déjà envoyées restent dans le document.
 - Niveaux imbriqués détectés : panneaux dynamiques, matrices dynamiques, panneaux de détail de ligne (`detailElements`) et colonnes dont la cellule est une matrice ou un panneau dynamique, à toute profondeur.
-- Les questions `html`, `image` et les variables ne sont pas enregistrées.ariables ne sont pas enregistrées.
+- Les questions `html`, `image` et les variables ne sont pas enregistrées.
