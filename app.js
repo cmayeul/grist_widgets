@@ -62,6 +62,7 @@
     customCss: '',
     mode: 'new',            // 'new' | 'edit'
     afterSubmit: 'again',   // 'again' | 'auto' | 'none'
+    lookups: [],            // listes liées : valeurs issues d'une autre table (voir onglet « Listes liées »)
     attachmentsMode: 'ids', // 'ids' : identifiants dans une colonne masquée + colonne formule | 'direct' : colonne Pièces jointes
     mapping: null,
     colTypes: {}            // types réels des colonnes mappées, mémorisés à l'enregistrement de la config
@@ -106,13 +107,14 @@
       if (!tid || /^_grist_/.test(tid)) return;
       if (tables.summarySourceTable && tables.summarySourceTable[i]) return; // tables de synthèse
       byRef[id] = tid;
-      meta.tables[tid] = { ref: id, columns: [] };
+      meta.tables[tid] = { ref: id, columns: [], allColumns: [] };
     });
     cols.id.forEach(function (id, i) {
       var t = byRef[cols.parentId[i]];
       if (!t) return;
       var colId = cols.colId[i];
       if (/^gristHelper_/.test(colId) || colId === 'manualSort') return;
+      meta.tables[t].allColumns.push({ id: colId, label: cols.label[i] || colId, type: cols.type[i] || 'Any', ref: id });
       if (cols.isFormula[i]) return; // colonnes formule : non inscriptibles
       meta.tables[t].columns.push({
         id: colId,
@@ -356,6 +358,7 @@
         var raw = C.unwrapList(rec[fm.col]);
         var ids;
         if (C.baseType(type) === 'Attachments') ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        else if (Array.isArray(raw)) ids = raw.map(Number).filter(function (n) { return isFinite(n); });
         else ids = String(raw == null ? '' : raw).split(/[,;\s]+/).filter(Boolean).map(Number).filter(function (n) { return isFinite(n); });
         if (!ids.length) return;
         v = ids.map(function (id) {
@@ -418,6 +421,124 @@
     st.textContent = css || '';
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* Listes liées : valeurs issues d'une autre table                      */
+  /* ------------------------------------------------------------------ */
+
+  S.lookupCache = {};
+
+  function lookupRows(table) {
+    if (!S.lookupCache[table]) {
+      var pr = grist.docApi.fetchTable(table).then(function (data) {
+        var ids = data.id || [];
+        var keys = Object.keys(data).filter(function (k) { return k !== 'id' && k !== 'manualSort'; });
+        return ids.map(function (id, i) {
+          var r = { id: id };
+          keys.forEach(function (k) { r[k] = data[k][i]; });
+          return r;
+        });
+      });
+      pr.catch(function () { delete S.lookupCache[table]; });
+      S.lookupCache[table] = pr;
+    }
+    return S.lookupCache[table];
+  }
+
+  // identifiant du niveau d'une question (même convention que l'analyse : « contrats/annees »)
+  function groupIdOf(q) {
+    var chain = [];
+    var p = q.parentQuestion;
+    while (p) { chain.unshift(p.valueName || p.name); p = p.parentQuestion; }
+    return chain.length ? chain.join('/') : ROOT;
+  }
+
+  // valeur d'un champ vu depuis une question : voisines de la même ligne / du même panneau, puis niveaux parents, puis formulaire
+  function ctxValue(model, q, name) {
+    var cur = q;
+    while (cur) {
+      var d = cur.data;
+      if (d && typeof d.getValue === 'function') {
+        var v = d.getValue(name);
+        if (!C.isEmptyVal(v)) return v;
+      }
+      cur = cur.parentQuestion;
+    }
+    return model.getValue(name);
+  }
+
+  function pruneValue(q, items) {
+    if (q.showOtherItem) return;
+    var ok = {};
+    items.forEach(function (i) { ok[String(i.value)] = true; });
+    var v = q.value;
+    if (Array.isArray(v)) {
+      var nv = v.filter(function (x) { return ok[String(x)]; });
+      if (nv.length !== v.length) q.value = nv.length ? nv : undefined;
+    } else if (!C.isEmptyVal(v) && !ok[String(v)]) {
+      q.clearValue();
+    }
+  }
+
+  function applyLookups(model, cfg) {
+    S.lookupCache = {}; // données fraîches pour chaque formulaire
+    var binds = (cfg.lookups || []).filter(function (b) { return b && b.table && b.key && b.valueCol; });
+    if (!binds.length) return;
+    var timer = null, running = false, again = false, loaded = false, warned = {};
+
+    function schedule() { clearTimeout(timer); timer = setTimeout(run, 40); }
+
+    async function applyOne(q, b) {
+      var rows;
+      try { rows = await lookupRows(b.table); }
+      catch (e) {
+        if (!warned[b.table]) { warned[b.table] = true; toast('Liste liée indisponible (table « ' + b.table + ' ») : ' + (e.message || e), 'error'); }
+        return;
+      }
+      var refs = (b.dynamic || []).map(function (d) { return d && d.source ? ctxValue(model, q, d.source) : undefined; });
+      var items = C.buildItems(rows, b, refs);
+      var sig = JSON.stringify(items);
+      if (q.__lkSig === sig) return;
+      q.__lkSig = sig;
+      if (q.getType() === 'text') {
+        q.dataList = items.map(function (i) { return i.text; });
+        return;
+      }
+      q.choices = items.map(function (i) { return { value: i.value, text: i.text }; });
+      if (loaded) pruneValue(q, items); // une valeur devenue invalide (filtre changé) est effacée
+    }
+
+    async function refresh() {
+      if (model.isDisposed) return;
+      var qs = model.getAllQuestions(false, false, true);
+      for (var i = 0; i < qs.length; i++) {
+        var q = qs[i], gid = null;
+        for (var j = 0; j < binds.length; j++) {
+          var b = binds[j];
+          if ((q.valueName || q.name) !== b.key) continue;
+          if (gid === null) gid = groupIdOf(q);
+          if (gid === b.group) await applyOne(q, b);
+        }
+      }
+    }
+
+    async function run() {
+      if (running) { again = true; return; }
+      running = true;
+      try { await refresh(); } catch (e) { console.warn('Listes liées :', e); }
+      running = false;
+      loaded = true;
+      if (again) { again = false; run(); }
+    }
+
+    ['onValueChanged', 'onMatrixCellValueChanged', 'onDynamicPanelItemValueChanged', 'onMatrixRowAdded',
+      'onMatrixRowRemoved', 'onDynamicPanelAdded', 'onDynamicPanelRemoved', 'onMatrixCellCreated',
+      'onMatrixDetailPanelVisibleChanged'].forEach(function (ev) {
+      if (model[ev] && model[ev].add) model[ev].add(schedule);
+    });
+    schedule();
+  }
+
   function createModel(cfg, data) {
     var json = JSON.parse(cfg.jsonText);
     var model = new Survey.Model(json);
@@ -428,6 +549,7 @@
     var th = themeObject(cfg);
     if (th) { try { model.applyTheme(th); } catch (e) { console.warn('Thème non appliqué', e); } }
     if (data) model.data = data;
+    applyLookups(model, cfg);
     return model;
   }
 
@@ -609,8 +731,9 @@
   var TABS = [
     ['form', '1 · Formulaire'],
     ['mapping', '2 · Mappage des données'],
-    ['look', '3 · Apparence'],
-    ['behavior', '4 · Comportement']
+    ['lookups', '3 · Listes liées'],
+    ['look', '4 · Apparence'],
+    ['behavior', '5 · Comportement']
   ];
 
   function renderConfig() {
@@ -634,6 +757,7 @@
     var body = $('#config-body');
     if (S.tab === 'form') renderFormTab(body);
     else if (S.tab === 'mapping') renderMappingTab(body);
+    else if (S.tab === 'lookups') renderLookupsTab(body);
     else if (S.tab === 'look') renderLookTab(body);
     else renderBehaviorTab(body);
     body.scrollTop = keepScroll;
@@ -839,6 +963,27 @@
       h('td', {}, fieldStatus(f, fm, gm)));
   }
 
+  // Colonne Référence : affiche le libellé choisi (colonne « Afficher la colonne ») plutôt que l'identifiant
+  async function setVisibleCols(items) {
+    var tabs = await grist.docApi.fetchTable('_grist_Tables');
+    var cols = await grist.docApi.fetchTable('_grist_Tables_column');
+    var tref = {};
+    tabs.id.forEach(function (id, i) { tref[tabs.tableId[i]] = id; });
+    function colRef(table, colId) {
+      for (var i = 0; i < cols.id.length; i++) {
+        if (cols.parentId[i] === tref[table] && cols.colId[i] === colId) return cols.id[i];
+      }
+      return null;
+    }
+    for (var k = 0; k < items.length; k++) {
+      var it = items[k];
+      if (!it.labelCol) continue;
+      var target = colRef(it.gm.table, it.gm.fields[it.key].col);
+      var label = colRef(it.srcTable, it.labelCol);
+      if (target && label) await applyUA([['UpdateRecord', '_grist_Tables_column', target, { visibleCol: label }]]);
+    }
+  }
+
   // Retire les colonnes des vues (champs de sections) : elles restent dans la table mais sont masquées.
   async function hideColumns(items) {
     var tabs = await grist.docApi.fetchTable('_grist_Tables');
@@ -863,15 +1008,26 @@
     var mapping = S.draft.mapping;
     var pending = []; // champs Pièces jointes en mode « identifiants » : formule à ajouter, colonne à masquer
     var idsMode = S.draft.attachmentsMode !== 'direct';
-    function mkSpec(f, gm) {
+    var pendingRef = []; // colonnes Référence créées : colonne affichée à définir
+    function mkSpec(f, gm, gid) {
       var fm = gm.fields[f.key];
       var spec = C.colSpec(f, fm, tz);
       if (idsMode && (fm.type || f.gType) === 'Attachments') {
         pending.push({ gm: gm, key: f.key, name: spec.id, label: f.title || f.key });
         spec.id = C.sanitizeColId(spec.id + '_ids');
-        spec.type = 'Text';
+        spec.type = 'ChoiceList'; // liste d'identifiants (même pour un seul fichier)
         spec.label = (f.title || f.key) + ' (id des documents)';
         delete spec.widgetOptions;
+      }
+      var lb = (S.draft.lookups || []).filter(function (b) { return b.group === gid && b.key === f.key && b.table; })[0];
+      if (lb && (fm.type || f.gType) !== 'Attachments') {
+        delete spec.widgetOptions; // les valeurs viennent de l'autre table, pas d'une liste figée
+        if (lb.valueCol === '$id') {
+          spec.type = ((fm.type || f.gType) === 'ChoiceList' ? 'RefList:' : 'Ref:') + lb.table;
+          pendingRef.push({ gm: gm, key: f.key, srcTable: lb.table, labelCol: lb.labelCol });
+        } else if (spec.type === 'Choice') {
+          spec.type = 'Text';
+        }
       }
       return spec;
     }
@@ -881,7 +1037,7 @@
         var toCreate = g.fields.filter(function (f) { return gm.fields[f.key] && gm.fields[f.key].col === NEW; });
         if (g.id !== ROOT && gm.table === NEW) {
           var specs = [{ id: C.sanitizeColId(gm.newLinkName || parentTable), type: 'Ref:' + parentTable, isFormula: false, label: gm.newLinkName || parentTable }];
-          toCreate.forEach(function (f) { specs.push(mkSpec(f, gm)); });
+          toCreate.forEach(function (f) { specs.push(mkSpec(f, gm, g.id)); });
           var rv = await applyUA([['AddTable', gm.newTableName || C.sanitizeTableId(g.key), specs]]);
           var info = rv[0];
           var ids = info.columns;
@@ -904,7 +1060,7 @@
           }
           for (var i = 0; i < toCreate.length; i++) {
             var f = toCreate[i];
-            var spec = mkSpec(f, gm);
+            var spec = mkSpec(f, gm, g.id);
             var id = spec.id;
             delete spec.id;
             var r = await applyUA([['AddColumn', gm.table, id, spec]]);
@@ -922,6 +1078,9 @@
           { type: 'Attachments', isFormula: true, formula: C.attachmentsFormula(idsCol), label: pd.label }]]);
         toHide.push({ table: pd.gm.table, col: idsCol });
       }
+      if (pendingRef.length) {
+        try { await setVisibleCols(pendingRef); } catch (er) { console.warn('Colonne affichée non définie', er); }
+      }
       if (toHide.length) {
         try { await hideColumns(toHide); } catch (eh) { console.warn('Masquage impossible', eh); toast('Colonnes d’identifiants créées mais non masquées : masquez-les manuellement.', 'error'); }
       }
@@ -936,7 +1095,151 @@
     renderConfig();
   }
 
-  /* ---- Onglet 3 : apparence -------------------------------------------- */
+
+  /* ---- Onglet 3 : listes liées ----------------------------------------- */
+
+  function lookupFields() {
+    var out = [];
+    C.flattenGroups(S.analysis).forEach(function (g) {
+      g.fields.forEach(function (f) {
+        if (C.lookupEligible(f)) {
+          out.push({ group: g.id, key: f.key, label: (g.id === ROOT ? '' : g.title + ' › ') + f.title + ' · ' + (QTYPE_LABEL[f.qType] || f.qType) });
+        }
+      });
+    });
+    return out;
+  }
+
+  // champs pouvant servir de filtre dynamique : même niveau et niveaux parents
+  function sourceFieldsFor(groupId) {
+    var ids = [ROOT];
+    var parts = groupId === ROOT ? [] : groupId.split('/');
+    for (var k = 1; k <= parts.length; k++) ids.push(parts.slice(0, k).join('/'));
+    var out = [];
+    C.flattenGroups(S.analysis).forEach(function (g) {
+      if (ids.indexOf(g.id) < 0) return;
+      g.fields.forEach(function (f) {
+        if (f.path.length === 1 && !f.synthetic) out.push({ name: f.path[0], label: (g.id === ROOT ? '' : g.title + ' › ') + f.title });
+      });
+    });
+    return out;
+  }
+
+  function sel(options, value, onchange) {
+    return h('select', { onchange: function (e) { onchange(e.target.value); } },
+      options.map(function (o) { return h('option', { value: o[0], text: o[1], selected: String(o[0]) === String(value) }); }));
+  }
+
+  function srcColumns(table) {
+    var t = S.meta.tables[table];
+    return t ? t.allColumns : [];
+  }
+
+  function colOptions(table, withId, blankLabel) {
+    var o = [];
+    if (blankLabel) o.push(['', blankLabel]);
+    if (withId) o.push(['$id', 'ID de la ligne (pour une colonne Référence)']);
+    srcColumns(table).forEach(function (c) { o.push([c.id, c.label + ' · ' + C.baseType(c.type)]); });
+    return o;
+  }
+
+  function newLookup() {
+    var f = lookupFields();
+    var tables = Object.keys(S.meta.tables).sort();
+    var t = tables[0] || '';
+    var cols = t ? srcColumns(t) : [];
+    return {
+      id: 'lk' + Date.now().toString(36), group: f[0] ? f[0].group : ROOT, key: f[0] ? f[0].key : '',
+      table: t, valueCol: cols[0] ? cols[0].id : '', labelCol: '', sort: 'label',
+      fixed: [], dynamic: [], emptyBehavior: 'none'
+    };
+  }
+
+  function filterRow(b, list, idx, kind, srcFields) {
+    var f = list[idx];
+    var noValue = f.op === 'empty' || f.op === 'notempty';
+    return h('div', { class: 'frow' },
+      sel(colOptions(b.table, true, '— colonne —').filter(function (o) { return o[0] !== '$id' || true; }), f.col || '', function (v) { f.col = v; renderConfig(); }),
+      sel(C.LOOKUP_OPS, f.op || '=', function (v) { f.op = v; renderConfig(); }),
+      kind === 'fixed'
+        ? (noValue ? null : h('input', { type: 'text', value: f.value == null ? '' : f.value, placeholder: 'valeur', onchange: function (e) { f.value = e.target.value; } }))
+        : (noValue ? null : sel([['', '— champ du formulaire —']].concat(srcFields.map(function (s) { return [s.name, s.label]; })), f.source || '', function (v) { f.source = v; renderConfig(); })),
+      h('button', { class: 'btn sm danger', text: '✕', title: 'Supprimer ce filtre', onclick: function () { list.splice(idx, 1); renderConfig(); } }));
+  }
+
+  function renderLookupCard(b, i) {
+    var fields = lookupFields();
+    var cur = b.group + '|' + b.key;
+    var found = fields.some(function (f) { return f.group + '|' + f.key === cur; });
+    var srcFields = sourceFieldsFor(b.group);
+    var result = h('div', { class: 'hint' });
+
+    var fieldOpts = fields.map(function (f) { return [f.group + '|' + f.key, f.label]; });
+    if (!found) fieldOpts.unshift([cur, '⚠ champ introuvable dans le JSON (' + b.key + ')']);
+
+    var card = h('section', { class: 'card' },
+      h('header', { class: 'card-head' },
+        badge('nest', 'Liste liée ' + (i + 1)), h('strong', { text: b.key || '(champ à choisir)' }),
+        h('button', { class: 'btn sm danger', text: 'Supprimer', onclick: function () { S.draft.lookups.splice(i, 1); renderConfig(); } })),
+      h('div', { class: 'grid2' },
+        h('label', { text: 'Champ du formulaire' }),
+        sel(fieldOpts, cur, function (v) { var p = v.split('|'); b.group = p[0]; b.key = p.slice(1).join('|'); b.dynamic = []; renderConfig(); }),
+        h('label', { text: 'Table source' }),
+        sel(Object.keys(S.meta.tables).sort().map(function (t) { return [t, t]; }), b.table, function (v) {
+          b.table = v; var c = srcColumns(v); b.valueCol = c[0] ? c[0].id : ''; b.labelCol = ''; b.fixed = []; b.dynamic = []; renderConfig();
+        }),
+        h('label', { text: 'Valeur enregistrée' }),
+        sel(colOptions(b.table, true), b.valueCol, function (v) { b.valueCol = v; renderConfig(); }),
+        h('label', { text: 'Libellé affiché' }),
+        sel(colOptions(b.table, false, '— identique à la valeur —'), b.labelCol || '', function (v) { b.labelCol = v; }),
+        h('label', { text: 'Tri' }),
+        sel([['label', 'Alphabétique (sur le libellé)'], ['none', 'Ordre de la table']], b.sort || 'label', function (v) { b.sort = v; })),
+      b.valueCol === '$id' ? h('p', { class: 'hint', text: 'La valeur enregistrée est l’identifiant de la ligne : reliez le champ à une colonne de type Référence (elle sera créée avec le bouton « Créer les éléments manquants » si besoin).' }) : null,
+
+      h('h4', { text: 'Filtre par défaut (défini par le concepteur)' }),
+      h('p', { class: 'hint', text: 'Ces conditions s’appliquent toujours. Elles sont combinées par « ET ».' }),
+      b.fixed.map(function (f, k) { return filterRow(b, b.fixed, k, 'fixed', srcFields); }),
+      h('button', { class: 'btn sm', text: '+ Ajouter une condition', onclick: function () { b.fixed.push({ col: '', op: '=', value: '' }); renderConfig(); } }),
+
+      h('h4', { text: 'Filtre dynamique (selon une réponse de l’utilisateur)' }),
+      h('p', { class: 'hint', text: 'La liste se met à jour quand la valeur du champ choisi change (champ de la même ligne, du même panneau ou du formulaire). Ce champ peut être une question du formulaire non enregistrée (colonne « ignoré » dans le mappage).' }),
+      b.dynamic.map(function (f, k) { return filterRow(b, b.dynamic, k, 'dynamic', srcFields); }),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn sm', text: '+ Ajouter un filtre dynamique', onclick: function () { b.dynamic.push({ col: '', op: '=', source: '' }); renderConfig(); } }),
+        b.dynamic.length ? h('span', { class: 'inline' }, h('span', { class: 'static', text: 'Tant que le champ est vide :' }),
+          sel([['none', 'afficher aucune valeur'], ['all', 'afficher toutes les valeurs']], b.emptyBehavior || 'none', function (v) { b.emptyBehavior = v; })) : null),
+
+      h('div', { class: 'row' },
+        h('button', { class: 'btn sm', text: 'Tester la liste', onclick: async function () {
+          result.textContent = 'Lecture de « ' + b.table + ' »…';
+          try {
+            delete S.lookupCache[b.table];
+            var rows = await lookupRows(b.table);
+            var items = C.buildItems(rows, Object.assign({}, b, { emptyBehavior: 'all' }), []);
+            result.textContent = items.length + ' valeur(s) (filtres dynamiques ignorés) : ' +
+              items.slice(0, 8).map(function (x) { return x.text; }).join(' · ') + (items.length > 8 ? ' …' : '');
+          } catch (e) { result.textContent = '✗ ' + (e.message || e); }
+        } })),
+      result);
+    return card;
+  }
+
+  function renderLookupsTab(body) {
+    if (S.parseError) { body.append(h('p', { class: 'status bad', text: 'Le JSON du formulaire est invalide : ' + S.parseError })); return; }
+    if (!S.analysis) { body.append(h('p', { class: 'hint', text: 'Ajoutez d’abord le JSON du formulaire (onglet 1).' })); return; }
+    if (!S.meta) { body.append(h('p', { class: 'hint', text: 'Lecture des tables Grist…' })); return; }
+    S.draft.lookups = S.draft.lookups || [];
+    var avail = lookupFields();
+    body.append(
+      h('p', { class: 'hint', html: 'Un champ <strong>liste déroulante</strong> (choix unique, cases à cocher, étiquettes…) ou <strong>texte</strong> (suggestions) peut prendre ses valeurs dans une autre table Grist, avec un filtre par défaut et/ou un filtre dynamique. Les utilisateurs doivent avoir un accès en lecture à la table source (règles d’accès Grist).' }),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary', text: '+ Ajouter une liste liée', disabled: !avail.length || !Object.keys(S.meta.tables).length,
+          onclick: function () { S.draft.lookups.push(newLookup()); renderConfig(); } }),
+        avail.length ? null : h('span', { class: 'hint', text: 'Aucun champ compatible (choix, liste déroulante ou texte) dans ce formulaire.' })));
+    S.draft.lookups.forEach(function (b, i) { body.append(renderLookupCard(b, i)); });
+  }
+
+  /* ---- Onglet 4 : apparence -------------------------------------------- */
 
   function renderLookTab(body) {
     var T = window.SurveyTheme || {};
@@ -1025,7 +1328,7 @@
     try { return await saveSurvey(data, { dry: true }); } finally { S.config = saved; }
   }
 
-  /* ---- Onglet 4 : comportement ----------------------------------------- */
+  /* ---- Onglet 5 : comportement ----------------------------------------- */
 
   function renderBehaviorTab(body) {
     function radio(name, value, label, desc) {
@@ -1044,7 +1347,7 @@
         radio('afterSubmit', 'auto', 'Réinitialiser automatiquement après 2 secondes'),
         radio('afterSubmit', 'none', 'Afficher uniquement le message de remerciement')) : null,
       h('h3', { text: 'Pièces jointes' }),
-      radio('attachmentsMode', 'ids', 'Identifiants + colonne formule (recommandé pour les non-propriétaires)', 'Les fichiers sont envoyés avec l’API des widgets ; leurs identifiants sont écrits dans une colonne texte masquée « id des documents », et une colonne formule de type Pièces jointes les relit.'),
+      radio('attachmentsMode', 'ids', 'Identifiants + colonne formule (recommandé pour les non-propriétaires)', 'Les fichiers sont envoyés avec l’API des widgets ; leurs identifiants sont écrits, sous forme de liste, dans une colonne masquée « id des documents », et une colonne formule de type Pièces jointes les relit.'),
       radio('attachmentsMode', 'direct', 'Écriture directe dans une colonne Pièces jointes', 'Fonctionne pour les propriétaires du document ; peut échouer pour les autres utilisateurs.'),
       h('p', { class: 'hint', html: 'Le message de fin se personnalise avec <code>completedHtml</code> dans le JSON du formulaire.' })
     );
