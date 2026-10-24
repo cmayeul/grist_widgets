@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Formulaires SurveyJS pour Grist</title>
+
+  <!-- SurveyJS (version épinglée ; changez le numéro pour mettre à jour) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/survey-core@3.2.2/survey-core.min.css">
+
+  <style>
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --line: #dfe3e8; --text: #1f2933; --muted: #6b7785;
+      --primary: #0a7d5a; --primary-d: #086548; --bad: #c0392b; --warn: #b9770e; --info: #2b6cb0; --ok: #1e8449;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: transparent; color: var(--text);
+      font: 14px/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: #eef1f4; padding: 1px 5px; border-radius: 4px; }
+    a { color: var(--info); }
+
+    /* ---- vue utilisateur ---- */
+    #view { min-height: 100%; }
+    #message { max-width: 560px; margin: 8vh auto; text-align: center; color: var(--muted); }
+    #message h2 { color: var(--text); }
+    #message .err { color: var(--bad); font-family: ui-monospace, monospace; }
+    #after { text-align: center; padding: 16px; }
+
+    /* ---- configuration ---- */
+    #config { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 10; }
+    #config[hidden], #view[hidden], [hidden] { display: none !important; }
+    .cfg-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .cfg-head h1 { font-size: 16px; margin: 0; }
+    .cfg-actions { display: flex; gap: 8px; }
+    .tabs { display: flex; gap: 2px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .tab { border: 0; background: none; padding: 10px 14px; cursor: pointer; color: var(--muted); font: inherit;
+      border-bottom: 3px solid transparent; white-space: nowrap; }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+    .cfg-body { flex: 1; overflow: auto; padding: 16px 18px 60px; max-width: 1100px; width: 100%; margin: 0 auto; }
+
+    .hint { color: var(--muted); margin: 0 0 12px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+    .btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 7px 14px; border-radius: 6px;
+      cursor: pointer; font: inherit; }
+    .btn:hover:not(:disabled) { border-color: #b8c0c9; }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: var(--primary-d); }
+    .btn:disabled { opacity: .5; cursor: default; }
+
+    textarea.code { width: 100%; min-height: 52vh; resize: vertical; padding: 12px; border-radius: 8px; border: 1px solid #2d3748;
+      background: #1e2430; color: #e6edf3; font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
+    textarea.code.small { min-height: 130px; margin-top: 8px; }
+    pre.code.out { background: #1e2430; color: #e6edf3; padding: 12px; border-radius: 8px; max-height: 320px; overflow: auto; font-size: 12px; }
+    .status { margin: 8px 0; min-height: 20px; color: var(--muted); }
+    .status.good { color: var(--ok); } .status.bad { color: var(--bad); }
+
+    details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+    summary { cursor: pointer; font-weight: 600; }
+    h3 { margin: 18px 0 8px; font-size: 14px; }
+    #preview { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; margin-bottom: 10px; }
+
+    /* ---- cartes de mappage ---- */
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 0 0 14px; }
+    .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .grid2 { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+    .grid2.wide { max-width: 560px; margin-bottom: 14px; }
+    .grid2 label { color: var(--muted); }
+    .inline { display: flex; gap: 8px; flex-wrap: wrap; }
+    .static { padding: 6px 0; font-weight: 600; }
+    select, input[type=text] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #fff; max-width: 100%; }
+    table.fields { width: 100%; border-collapse: collapse; }
+    table.fields th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+    table.fields td { padding: 6px 8px; border-bottom: 1px solid #f0f2f5; vertical-align: top; }
+    table.fields td select, table.fields td input { width: 100%; margin-bottom: 4px; }
+    .f-title { font-weight: 600; } .f-key { color: var(--muted); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .badge.ok { background: #e3f4ea; color: var(--ok); } .badge.warn { background: #fdf0dc; color: var(--warn); }
+    .badge.bad { background: #fbe4e1; color: var(--bad); } .badge.info { background: #e1ecf8; color: var(--info); }
+    .badge.muted { background: #eceff2; color: var(--muted); }
+    .badge.root { background: #d9efe7; color: var(--primary-d); } .badge.nest { background: #ece6f8; color: #5b3fa0; }
+
+    .radio { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+    .radio span { display: flex; flex-direction: column; } .radio small { color: var(--muted); }
+
+    .frow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 5px 0; }
+    .frow select, .frow input { min-width: 130px; }
+    .btn.sm { padding: 3px 10px; font-size: 12.5px; } .btn.danger { color: var(--bad); }
+    h4 { margin: 16px 0 4px; font-size: 13px; }
+    #boot { position: fixed; inset: 0; z-index: 100; background: #fff; color: #7b241c; padding: 24px; overflow: auto; }
+    #boot small { color: #6b7785; display: block; margin-top: 12px; }
+    #boot li { font-family: ui-monospace, monospace; font-size: 12.5px; margin: 6px 0; word-break: break-word; }
+    .toast { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 30px); opacity: 0; pointer-events: none;
+      background: #25303b; color: #fff; padding: 10px 16px; border-radius: 8px; transition: .2s; z-index: 50; max-width: 90vw; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); } .toast.ok { background: var(--ok); } .toast.error { background: var(--bad); }
+  </style>
+</head>
+<body>
+  <div id="view">
+    <div id="message" hidden></div>
+    <div id="survey"></div>
+    <div id="after" hidden></div>
+  </div>
+  <div id="config" hidden></div>
+  <div id="toast" class="toast"></div>
+  <div id="boot" hidden></div>
+  <script>
+    /* Diagnostic de démarrage : affiche à l'écran toute erreur de chargement ou d'exécution */
+    (function () {
+      var box = document.getElementById('boot'), errs = [];
+      function show(extra) {
+        var list = errs.concat(extra || []);
+        if (!list.length) return;
+        box.hidden = false;
+        box.innerHTML = '<strong>Le widget n’a pas pu démarrer</strong><ul></ul><small>Rechargez la page en vidant le cache (Ctrl+Maj+R). Si le problème persiste, transmettez ce message.</small>';
+        list.forEach(function (m) { var li = document.createElement('li'); li.textContent = m; box.querySelector('ul').appendChild(li); });
+      }
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && (t.src || t.href) && t !== window) errs.push('Fichier non chargé : ' + (t.src || t.href));
+        else errs.push((e.message || 'Erreur') + (e.filename ? ' [' + e.filename.split('/').pop().split('?')[0] + ':' + e.lineno + ']' : ''));
+        show();
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        errs.push('Erreur asynchrone : ' + ((e.reason && e.reason.message) || e.reason));
+        show();
+      });
+      setTimeout(function () {
+        if (window.__sjReady) return;
+        var miss = [];
+        if (typeof grist === 'undefined') miss.push('API Grist (grist-plugin-api.js) absente');
+        if (typeof Survey === 'undefined') miss.push('survey-core absent');
+        if (typeof SurveyUI === 'undefined') miss.push('survey-js-ui absent');
+        if (typeof SJCore === 'undefined') miss.push('core.js absent ou en erreur');
+        show(miss.length ? miss : ['Démarrage incomplet (app.js non exécuté).']);
+      }, 4000);
+    })();
+  </script>
+
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/survey-core@3.2.2/survey.core.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/survey-core@3.2.2/survey.i18n.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/survey-core@3.2.2/themes/index.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/survey-js-ui@3.2.2/survey-js-ui.min.js"></script>
+  <script src="core.js?v=2026-10-24a"></script>
+  <script src="app.js?v=2026-10-24a"></script>
+</body>
+</html>

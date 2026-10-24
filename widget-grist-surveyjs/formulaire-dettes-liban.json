@@ -1,0 +1,289 @@
+{
+  "locale": "fr",
+  "title": "Déclaration des dettes de l'État envers les institutions libanaises",
+  "description": "Une ligne par contrat. Le « + » de chaque contrat déplie le détail des années ; celui de chaque année déplie la facture à joindre. Tous les montants sont en livres libanaises (LBP).",
+  "showQuestionNumbers": "off",
+  "questionErrorLocation": "bottom",
+  "showProgressBar": "off",
+  "checkErrorsMode": "onNextPage",
+  "textUpdateMode": "onBlur",
+  "requiredText": "*",
+  "completeText": "Envoyer la déclaration",
+  "pagePrevText": "Précédent",
+  "pageNextText": "Suivant",
+  "loadingHtml": "Envoi en cours…",
+  "completedHtml": "<h3>Merci, votre déclaration a bien été enregistrée.</h3><p>Vous pouvez fermer cette page ou saisir une nouvelle déclaration.</p>",
+  "pages": [
+    {
+      "name": "declaration",
+      "elements": [
+        {
+          "type": "panel",
+          "name": "panelTutelle",
+          "title": "Tutelle",
+          "description": "Institution déclarante et personne chargée de la saisie.",
+          "state": "expanded",
+          "elements": [
+            {
+              "type": "dropdown",
+              "name": "tutelleNom",
+              "title": "Nom de la tutelle",
+              "placeholder": "Choisir une institution…",
+              "searchEnabled": true,
+              "allowClear": true,
+              "isRequired": true,
+              "requiredErrorText": "Veuillez choisir la tutelle.",
+              "choices": [],
+              "minWidth": "320px"
+            },
+            {
+              "type": "text",
+              "name": "responsableNom",
+              "title": "Responsable de la saisie",
+              "startWithNewLine": false,
+              "placeholder": "Prénom et nom",
+              "isRequired": true,
+              "requiredErrorText": "Veuillez indiquer le nom de la personne responsable de la saisie.",
+              "minWidth": "260px",
+              "validators": [
+                {
+                  "type": "regex",
+                  "regex": "^[^0-9]{2,100}$",
+                  "text": "Le nom doit contenir entre 2 et 100 caractères, sans chiffres."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "whatsapp",
+              "title": "Numéro WhatsApp",
+              "description": "Format international, ex. : +961 3 123 456",
+              "inputType": "tel",
+              "placeholder": "+961 …",
+              "isRequired": true,
+              "requiredErrorText": "Veuillez indiquer un numéro WhatsApp.",
+              "minWidth": "260px",
+              "validators": [
+                {
+                  "type": "regex",
+                  "regex": "^\\+(?=(?:[ .\\-]*\\d){8,15}[ ]*$)[1-9][\\d .\\-]*[ ]*$",
+                  "text": "Numéro invalide : saisissez-le au format international, avec « + » et l'indicatif du pays (de 8 à 15 chiffres), ex. : +961 3 123 456."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "name": "email",
+              "title": "Adresse e-mail",
+              "inputType": "email",
+              "startWithNewLine": false,
+              "placeholder": "nom@organisation.org",
+              "isRequired": true,
+              "requiredErrorText": "Veuillez indiquer une adresse e-mail.",
+              "minWidth": "260px",
+              "validators": [
+                {
+                  "type": "email",
+                  "text": "Adresse e-mail invalide (exemple : nom@organisation.org)."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "matrixdynamic",
+          "name": "contrats",
+          "title": "Contrats",
+          "description": "Ajoutez autant de contrats que nécessaire.",
+          "isRequired": true,
+          "requiredErrorText": "Veuillez déclarer au moins un contrat.",
+          "rowCount": 0,
+          "minRowCount": 0,
+          "addRowText": "Ajouter un contrat",
+          "removeRowText": "Supprimer ce contrat",
+          "confirmDelete": true,
+          "confirmDeleteText": "Supprimer ce contrat et toutes ses années ?",
+          "noRowsText": "Aucun contrat pour le moment.",
+          "keyName": "contratNom",
+          "keyDuplicationError": "Ce contrat est déjà déclaré : une seule ligne par contrat.",
+          "detailPanelMode": "underRow",
+          "detailPanelShowOnAdding": true,
+          "columnLayout": "horizontal",
+          "columns": [
+            {
+              "name": "contratNom",
+              "title": "Contrat",
+              "cellType": "dropdown",
+              "placeholder": "Choisir un contrat…",
+              "searchEnabled": true,
+              "isRequired": true,
+              "requiredErrorText": "Veuillez choisir un contrat.",
+              "choices": [],
+              "minWidth": "260px"
+            },
+            {
+              "name": "etablissementFerme",
+              "title": "Établissement fermé ?",
+              "cellType": "boolean",
+              "defaultValue": false,
+              "labelTrue": "Oui",
+              "labelFalse": "Non",
+              "minWidth": "110px"
+            },
+            {
+              "name": "contratRompu",
+              "title": "Contrat rompu ?",
+              "cellType": "boolean",
+              "defaultValue": false,
+              "labelTrue": "Oui",
+              "labelFalse": "Non",
+              "minWidth": "110px"
+            },
+            {
+              "name": "contratSuspendu",
+              "title": "Contrat suspendu ?",
+              "cellType": "boolean",
+              "defaultValue": false,
+              "labelTrue": "Oui",
+              "labelFalse": "Non",
+              "minWidth": "110px"
+            },
+            {
+              "name": "pjContrat",
+              "title": "Contrat (PDF)",
+              "cellType": "file",
+              "storeDataAsText": true,
+              "acceptedTypes": "application/pdf",
+              "allowMultiple": false,
+              "showPreview": false,
+              "maxSize": 5242880,
+              "minWidth": "170px"
+            }
+          ],
+          "detailElements": [
+            {
+              "type": "matrixdynamic",
+              "name": "annees",
+              "title": "Détail par année",
+              "description": "Une ligne par année concernée (de 1950 à 2050). Le « + » de la ligne déplie la facture à joindre.",
+              "isRequired": true,
+              "requiredErrorText": "Veuillez déclarer au moins une année pour ce contrat.",
+              "rowCount": 0,
+              "minRowCount": 0,
+              "addRowText": "Ajouter une année",
+              "removeRowText": "Supprimer cette année",
+              "confirmDelete": true,
+              "confirmDeleteText": "Supprimer cette année ?",
+              "noRowsText": "Aucune année pour le moment.",
+              "keyName": "annee",
+              "keyDuplicationError": "Cette année est déjà déclarée pour ce contrat.",
+              "detailPanelMode": "underRow",
+              "detailPanelShowOnAdding": false,
+              "columnLayout": "horizontal",
+              "columns": [
+                {
+                  "name": "annee",
+                  "title": "Année",
+                  "cellType": "text",
+                  "inputType": "number",
+                  "placeholder": "AAAA",
+                  "isRequired": true,
+                  "requiredErrorText": "Indiquez l'année.",
+                  "minWidth": "90px",
+                  "validators": [
+                    {
+                      "type": "numeric",
+                      "minValue": 1950,
+                      "maxValue": 2050,
+                      "text": "L'année doit être comprise entre 1950 et 2050."
+                    },
+                    {
+                      "type": "expression",
+                      "expression": "{row.annee} empty or {row.annee} = round({row.annee})",
+                      "text": "L'année doit être un nombre entier (ex. : 2023)."
+                    }
+                  ]
+                },
+                {
+                  "name": "montantFacture",
+                  "title": "Montant facturé (LBP)",
+                  "cellType": "text",
+                  "inputType": "number",
+                  "isRequired": true,
+                  "requiredErrorText": "Indiquez le montant facturé.",
+                  "minWidth": "160px",
+                  "validators": [
+                    {
+                      "type": "numeric",
+                      "minValue": 0,
+                      "text": "Le montant facturé doit être un nombre positif ou nul."
+                    },
+                    {
+                      "type": "expression",
+                      "expression": "{row.montantFacture} empty or {row.montantFacture} = round({row.montantFacture})",
+                      "text": "Le montant facturé doit être un nombre entier de livres libanaises (sans décimales)."
+                    }
+                  ]
+                },
+                {
+                  "name": "montantRecu",
+                  "title": "Montant reçu (LBP)",
+                  "cellType": "text",
+                  "inputType": "number",
+                  "isRequired": true,
+                  "requiredErrorText": "Indiquez le montant effectivement reçu (0 si rien n'a été reçu).",
+                  "minWidth": "160px",
+                  "validators": [
+                    {
+                      "type": "numeric",
+                      "minValue": 0,
+                      "text": "Le montant reçu doit être un nombre positif ou nul."
+                    },
+                    {
+                      "type": "expression",
+                      "expression": "{row.montantRecu} empty or {row.montantRecu} = round({row.montantRecu})",
+                      "text": "Le montant reçu doit être un nombre entier de livres libanaises (sans décimales)."
+                    },
+                    {
+                      "type": "expression",
+                      "expression": "{row.montantRecu} empty or {row.montantFacture} empty or {row.montantRecu} <= {row.montantFacture}",
+                      "text": "Le montant reçu ne peut pas dépasser le montant facturé."
+                    }
+                  ]
+                },
+                {
+                  "name": "retardPaiement",
+                  "title": "Retard de paiement (années)",
+                  "cellType": "text",
+                  "inputType": "number",
+                  "placeholder": "ex. : 2,5",
+                  "minWidth": "150px",
+                  "validators": [
+                    {
+                      "type": "numeric",
+                      "minValue": 0,
+                      "maxValue": 100,
+                      "text": "Le retard doit être un nombre d'années compris entre 0 et 100 (ex. : 2,5)."
+                    }
+                  ]
+                }
+              ],
+              "detailElements": [
+                {
+                  "type": "file",
+                  "name": "pjFacture",
+                  "title": "Facture (PDF)",
+                  "storeDataAsText": true,
+                  "acceptedTypes": "application/pdf",
+                  "allowMultiple": false,
+                  "showPreview": false,
+                  "maxSize": 5242880
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
