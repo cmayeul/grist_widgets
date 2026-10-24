@@ -51,7 +51,7 @@ Même onglet (« 3 · Listes liées et remplissage »). Une **matrice dynamique*
 - **Déplier le détail** : ouvre le détail de chaque ligne ajoutée (utile si le détail contient des champs obligatoires, comme les années d'un contrat).
 - Le bouton « Tester » affiche le nombre de lignes et un aperçu ; la lecture de la table source demande un accès en lecture.
 
-### Exemple : formulaire des dettes (`formulaire-dettes-liban.json`)
+### Exemple de configuration : formulaire de déclaration de dettes
 
 1. **Liste liée** du champ `tutelleNom` : table `Institutions`, valeur = *ID de la ligne*, libellé = `nom`.
 2. **Liste liée** du champ `contratNom` (niveau `contrats`) : table `Contrats`, valeur = *ID de la ligne*, libellé = `nom`, filtre dynamique `institution` *est égal à* `tutelleNom`.
